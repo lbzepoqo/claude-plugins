@@ -16,7 +16,7 @@ The plugin gives the model a tool, `mark`, with two inputs: the state, and a foc
 
 The token counts in the table are the defaults of `boundaryTokens` and `softTokens` (see Settings).
 
-A `boundary` mark counts only at the end of the turn in which the model set it. The plugin drops the mark when that turn ends, also when it did not compact, so the mark cannot cause a compaction later in the middle of other work. When you interrupt the turn, the mark stays until the next turn ends. A `busy` mark stays until the model replaces it. Any compaction clears the mark. Each session has its own mark.
+A `boundary` mark counts only at the end of the turn in which the model set it. The plugin drops the mark when that turn ends, also when it did not compact, so the mark cannot cause a compaction later in the middle of other work. When you interrupt the turn, the plugin drops the mark and does not compact. A `busy` mark stays until the model replaces it. Any compaction clears the mark. Each session has its own mark.
 
 After a `git commit`, the plugin reminds the model to set the mark when the context has reached `boundaryTokens`, or when the mark is `busy`. A commit is the most common task boundary, and without the reminder the model often forgets the tool. Below `boundaryTokens` a `boundary` mark has no effect, so without a `busy` mark there is no reminder.
 

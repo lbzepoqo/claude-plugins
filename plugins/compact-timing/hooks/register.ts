@@ -46,21 +46,21 @@ const markSchema = {
   required: ['state'],
 }
 
-/** A `git commit`, also with `-C <dir>` or `-c <key=value>` before the subcommand. */
-export const isCommit = (command: string) => /\bgit\s+(?:-[Cc]\s+\S+\s+)*commit\b/.test(command)
+/** A `git commit`, also after global options such as `-C <dir>`, `-c <key=value>` or `--no-pager`. */
+export const isCommit = (command: string) =>
+  /\bgit(?:\s+(?:-[Cc]\s+(?:"[^"]*"|'[^']*'|\S+)|--?[\w-]+(?:=\S+)?))*\s+commit(?![\w-])/.test(command)
 
 /**
  * Read right after a commit's result. The tool description alone is often missed, so the reminder
  * comes at the moment a boundary is most likely.
  */
-export const commitReminder = (toolName: string) =>
-  [
-    `compact-timing: this commit saved work outside the conversation. If a task or milestone is done, call ${toolName} with \`boundary\` and a focus: the next step and open decisions.`,
-    'If the work continues and its details exist only in the conversation, call it with `busy` instead.',
-  ].join(' ')
-
-/** The mark the next turn starts with: a boundary counts only at the end of the turn that set it. */
-export const markAfterTurn = (current: Mark | null): Mark | null => (current?.state === 'boundary' ? null : current)
+export const commitReminder = (toolName: string, current: Mark | null) =>
+  current?.state === 'busy'
+    ? `compact-timing: the mark is \`busy\`. If the step whose details exist only in the conversation is done, call ${toolName} with \`boundary\` and a focus: the next step and open decisions.`
+    : [
+        `compact-timing: this commit saved work outside the conversation. If a task or milestone is done, call ${toolName} with \`boundary\` and a focus: the next step and open decisions.`,
+        'If the work continues and its details exist only in the conversation, call it with `busy` instead.',
+      ].join(' ')
 
 /**
  * Whether a commit gets the reminder: when a boundary mark can compact at this size, or when a busy
@@ -69,10 +69,31 @@ export const markAfterTurn = (current: Mark | null): Mark | null => (current?.st
 export const shouldRemind = (current: Mark | null, tokens: number | undefined, limits: Limits): boolean =>
   current?.state === 'busy' || (tokens !== undefined && tokens >= limits.boundaryTokens)
 
+/**
+ * At the end of a main turn: the mark the next turn starts with, and whether to compact now. A boundary
+ * counts only at the end of the turn that set it, also when the turn was interrupted, since an interrupt
+ * often means the boundary no longer holds. An interrupted turn never compacts.
+ */
+export const turnEnd = (
+  current: Mark | null,
+  tokens: number | undefined,
+  isAborted: boolean,
+  limits: Limits,
+): { next: Mark | null; compact: boolean } => ({
+  next: current?.state === 'boundary' ? null : current,
+  compact: !isAborted && shouldCompact(current, tokens, limits),
+})
+
+/** A positive number from the settings, else the default: an empty or misspelled value must not compact every turn. */
+export const limitOption = (value: unknown, fallback: number): number => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
 export const register: Register = (on, options) => {
   const limits: Limits = {
-    boundaryTokens: Number(options.boundaryTokens ?? 200_000),
-    softTokens: Number(options.softTokens ?? 300_000),
+    boundaryTokens: limitOption(options.boundaryTokens, 200_000),
+    softTokens: limitOption(options.softTokens, 300_000),
   }
   let markTool = 'mcp__compact-timing__mark'
 
@@ -94,41 +115,42 @@ export const register: Register = (on, options) => {
     if (e.tool !== 'Bash' || e.agentId !== undefined || result.deny !== undefined || result.isError) return result
     const { command } = e as unknown as { command: string }
     if (!isCommit(command)) return result
-    const current = await read($, mark).catch(() => null)
-    const tokens = await $.session.usage().then(usage => usage.context.tokens).catch(() => undefined)
+    const [current, tokens] = await Promise.all([
+      read($, mark).catch(() => null),
+      $.session.usage().then(usage => usage.context.tokens).catch(() => undefined),
+    ])
     if (!shouldRemind(current, tokens, limits)) return result
-    return { ...result, context: [...(result.context ?? []), commitReminder(markTool)] }
+    return { ...result, context: [...(result.context ?? []), commitReminder(markTool, current)] }
   })
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    // An interrupted turn keeps its mark: the boundary the model set is still true at the next turn end.
-    if (e.agentId !== undefined || e.isAborted) return result
-    let current = null as Mark | null
+    if (e.agentId !== undefined) return result
     try {
+      const tokens = await $.session.usage().then(usage => usage.context.tokens)
+      let current = null as Mark | null
+      let decision = { next: null as Mark | null, compact: false }
       // One read-modify-write, so a mark set meanwhile is neither lost nor judged by the old value.
       await update($, mark, previous => {
         current = previous
-        return markAfterTurn(previous)
+        decision = turnEnd(previous, tokens, e.isAborted === true, limits)
+        return decision.next
       })
-    } catch {
-      return result
-    }
-    try {
-      const { context } = await $.session.usage()
-      if (!shouldCompact(current, context.tokens, limits)) return result
+      if (!decision.compact) return result
       const outcome = await $.session.compact(current?.focus ? { instructions: current.focus } : {})
       if ('skip' in outcome && outcome.skip !== undefined) $.ui.toast(`compact-timing: compaction skipped (${outcome.skip})`)
     } catch (error) {
-      $.ui.toast(`compact-timing: compaction failed (${error instanceof Error ? error.message : String(error)})`)
+      $.ui.toast(`compact-timing: end of turn failed (${error instanceof Error ? error.message : String(error)})`)
     }
     return result
   })
 
-  // Any compaction, also the automatic one at the hard limit, starts the next period without a mark.
+  // Any compaction that replaces the conversation, also the automatic one at the hard limit, starts the
+  // next period without a mark. A precompute installs nothing, so the mark stays.
   on('session.compact', async ($, e, next) => {
     const result = await next(e)
-    if (e.agentId === undefined && result.skip === undefined) await update($, mark, () => null).catch(() => undefined)
+    if (e.agentId === undefined && e.trigger !== 'precompute' && result.skip === undefined)
+      await update($, mark, () => null).catch(() => undefined)
     return result
   })
 }
