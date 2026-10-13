@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { isCommit, parseMark, ruleText, shouldCompact } from '../hooks/register'
+import { isCommit, markAfterTurn, parseMark, ruleText, shouldCompact } from '../hooks/register'
 
 const limits = { boundaryTokens: 200_000, softTokens: 300_000 }
 
@@ -19,6 +19,11 @@ test('a boundary compacts earlier, no mark at the soft limit, busy never', () =>
   expect(shouldCompact(null, 300_000, limits)).toBe(true)
   expect(shouldCompact(busy, 450_000, limits)).toBe(false)
   expect(shouldCompact(null, undefined, limits)).toBe(false)
+})
+
+test('a boundary lasts one turn, busy stays', () => {
+  expect(markAfterTurn({ state: 'boundary', focus: 'x' })).toBe(null)
+  expect(markAfterTurn({ state: 'busy', focus: 'x' })).toEqual({ state: 'busy', focus: 'x' })
 })
 
 test('a commit is recognized, also after other commands and with -C', () => {
