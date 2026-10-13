@@ -49,7 +49,7 @@ echo '{"boundaryTokens": "150000"}' | claude plugin configure compact-timing@lbz
 
 ## Limits
 
-- Tested with Opus: it writes marks without being asked. Haiku did not write marks in two tests. Sonnet is not tested. A model that writes no marks is compacted only at the 300k limit.
+- The model often does not write marks on its own. Claude Code shows plugin context to the model as background information, and the model can miss it. In a test, Opus found and fixed a bug and committed the fix, and it wrote no mark. Opus wrote marks when the prompt said that the task was finished. Haiku did not write marks in two tests. Sonnet is not tested. A model that writes no marks is compacted only at the 300k limit.
 - Headless sessions (`claude -p`, the SDK) cannot compact from a plugin yet. In these sessions the plugin shows a "compaction failed" message and nothing else changes.
 
 ## Develop
