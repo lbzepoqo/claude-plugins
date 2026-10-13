@@ -48,7 +48,7 @@ echo '{"boundaryTokens": "150000"}' | claude plugin configure compact-timing@lbz
 
 ## Limits
 
-- In a test, Opus set `boundary` with a useful focus after it committed a bug fix. It did not set `busy` while it searched for the bug. Without the commit reminder, it set no mark at all. Sonnet and Haiku are not tested with the tool.
+- In a test, Opus, Sonnet and Haiku each set `boundary` with a useful focus after they committed a bug fix. None of them set `busy` while it searched for the bug. Without the commit reminder, Opus set no mark at all.
 - Headless sessions (`claude -p`, the SDK) cannot compact from a plugin yet. In these sessions the plugin shows a "compaction failed" message and nothing else changes.
 
 ## Develop
