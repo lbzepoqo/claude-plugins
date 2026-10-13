@@ -1,0 +1,29 @@
+{
+  "name": "compact-timing",
+  "version": "0.2.0",
+  "description": "Compacts the conversation at task boundaries instead of at a fixed token count: the model marks the session busy or at a boundary, and the plugin compacts at the end of a turn when the mark and the context size allow it",
+  "author": { "name": "lbzepoqo", "url": "https://github.com/lbzepoqo" },
+  "repository": "https://github.com/lbzepoqo/claude-plugins",
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "boundaryTokens": {
+      "type": "number",
+      "title": "Boundary tokens",
+      "description": "At a marked boundary, compact when the context holds at least this many tokens",
+      "default": 200000
+    },
+    "softTokens": {
+      "type": "number",
+      "title": "Soft limit tokens",
+      "description": "Without a busy mark, compact when the context holds at least this many tokens. Keep autoCompactWindow above this as the hard limit",
+      "default": 300000
+    },
+    "stateFile": {
+      "type": "string",
+      "title": "State file",
+      "description": "The file the model writes its mark to, relative to the home folder",
+      "default": ".cache/compact-timing/mark.md"
+    }
+  }
+}

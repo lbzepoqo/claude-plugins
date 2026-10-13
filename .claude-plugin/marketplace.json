@@ -1,0 +1,15 @@
+{
+  "name": "lbzepoqo",
+  "description": "Claude Code plugins by lbzepoqo",
+  "owner": {
+    "name": "lbzepoqo",
+    "url": "https://github.com/lbzepoqo"
+  },
+  "plugins": [
+    {
+      "name": "compact-timing",
+      "source": "./plugins/compact-timing",
+      "description": "Compacts the conversation at task boundaries instead of at a fixed token count: the model marks the session busy or at a boundary, and the plugin compacts at the end of a turn when the mark and the context size allow it"
+    }
+  ]
+}
