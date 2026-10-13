@@ -14,9 +14,11 @@ The plugin gives the model a tool, `mark`, with two inputs: the state, and a foc
 | none | No mark since the last compaction | 300k tokens or more |
 | `busy` | A step is in progress whose details exist only in the conversation | never |
 
-A `boundary` mark counts only at the end of the turn in which the model set it. When the context is smaller than 200k tokens at that point, the plugin drops the mark, so it cannot cause a compaction later in the middle of other work. A `busy` mark stays until the model replaces it. Any compaction clears the mark. Each session has its own mark.
+The token counts in the table are the defaults of `boundaryTokens` and `softTokens` (see Settings).
 
-After a `git commit`, the plugin reminds the model to set the mark when the context contains 200k tokens or more. A commit is the most common task boundary, and without the reminder the model often forgets the tool. Below 200k a `boundary` mark has no effect, so there is no reminder.
+A `boundary` mark counts only at the end of the turn in which the model set it. The plugin drops the mark when that turn ends, also when it did not compact, so the mark cannot cause a compaction later in the middle of other work. When you interrupt the turn, the mark stays until the next turn ends. A `busy` mark stays until the model replaces it. Any compaction clears the mark. Each session has its own mark.
+
+After a `git commit`, the plugin reminds the model to set the mark when the context has reached `boundaryTokens`, or when the mark is `busy`. A commit is the most common task boundary, and without the reminder the model often forgets the tool. Below `boundaryTokens` a `boundary` mark has no effect, so without a `busy` mark there is no reminder.
 
 A `busy` mark that is never replaced stops the plugin from compacting. Claude Code's own automatic compaction still runs at `autoCompactWindow`. Keep that setting above 300k, for example:
 

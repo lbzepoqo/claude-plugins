@@ -31,7 +31,7 @@ const thousands = (tokens: number) => `${Math.round(tokens / 1000)}k`
 export const ruleText = (limits: Limits) =>
   [
     'Sets the compaction mark for this conversation. The compact-timing plugin compacts at task boundaries instead of at a fixed token count.',
-    `- \`boundary\`: call after a task or milestone whose state is saved outside the conversation (committed, or in a plan or notes file). The plugin compacts at the end of that turn when the context contains ${thousands(limits.boundaryTokens)} tokens or more, and drops the mark at the end of the turn in any case.`,
+    `- \`boundary\`: call after a task or milestone whose state is saved outside the conversation (committed, or in a plan or notes file). The plugin compacts at the end of that turn when the context contains ${thousands(limits.boundaryTokens)} tokens or more. Either way the mark is dropped when the turn ends.`,
     '- `busy`: call before a step whose details exist only in the conversation, such as a debugging sequence or reading test output. The plugin does not compact while the mark is `busy`. Call with `boundary` when the step is done.',
     '- `focus`: what the summary must keep: the next step, open decisions, file paths.',
     `Without a mark the plugin compacts at ${thousands(limits.softTokens)} tokens. Any compaction clears the mark.`,
@@ -62,6 +62,13 @@ export const commitReminder = (toolName: string) =>
 /** The mark the next turn starts with: a boundary counts only at the end of the turn that set it. */
 export const markAfterTurn = (current: Mark | null): Mark | null => (current?.state === 'boundary' ? null : current)
 
+/**
+ * Whether a commit gets the reminder: when a boundary mark can compact at this size, or when a busy
+ * mark is set, since the reminder is what makes the model replace it.
+ */
+export const shouldRemind = (current: Mark | null, tokens: number | undefined, limits: Limits): boolean =>
+  current?.state === 'busy' || (tokens !== undefined && tokens >= limits.boundaryTokens)
+
 export const register: Register = (on, options) => {
   const limits: Limits = {
     boundaryTokens: Number(options.boundaryTokens ?? 200_000),
@@ -87,19 +94,27 @@ export const register: Register = (on, options) => {
     if (e.tool !== 'Bash' || e.agentId !== undefined || result.deny !== undefined || result.isError) return result
     const { command } = e as unknown as { command: string }
     if (!isCommit(command)) return result
-    // Below the boundary limit a boundary mark cannot cause a compaction, so the reminder would only be noise.
+    const current = await read($, mark).catch(() => null)
     const tokens = await $.session.usage().then(usage => usage.context.tokens).catch(() => undefined)
-    if (tokens === undefined || tokens < limits.boundaryTokens) return result
+    if (!shouldRemind(current, tokens, limits)) return result
     return { ...result, context: [...(result.context ?? []), commitReminder(markTool)] }
   })
 
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
-    if (e.agentId !== undefined) return result
+    // An interrupted turn keeps its mark: the boundary the model set is still true at the next turn end.
+    if (e.agentId !== undefined || e.isAborted) return result
+    let current = null as Mark | null
     try {
-      const current = await read($, mark)
-      await update($, mark, markAfterTurn)
-      if (e.isAborted) return result
+      // One read-modify-write, so a mark set meanwhile is neither lost nor judged by the old value.
+      await update($, mark, previous => {
+        current = previous
+        return markAfterTurn(previous)
+      })
+    } catch {
+      return result
+    }
+    try {
       const { context } = await $.session.usage()
       if (!shouldCompact(current, context.tokens, limits)) return result
       const outcome = await $.session.compact(current?.focus ? { instructions: current.focus } : {})
