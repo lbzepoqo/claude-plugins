@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { isCommit, limitOption, parseMark, ruleText, shouldCompact, shouldRemind, turnEnd } from '../hooks/register'
+import { engineInstructions, isCommit, limitOption, parseMark, ruleText, shouldCompact, shouldRemind, turnEnd } from '../hooks/register'
 
 const limits = { boundaryTokens: 200_000, softTokens: 300_000 }
 
@@ -59,4 +59,12 @@ test('an empty or misspelled limit falls back to the default', () => {
   expect(limitOption('', 200_000)).toBe(200_000)
   expect(limitOption('300k', 300_000)).toBe(300_000)
   expect(limitOption(undefined, 300_000)).toBe(300_000)
+})
+
+test("Claude Code's own compaction gets the mark's focus when it has no instructions", () => {
+  const busy = { state: 'busy' as const, focus: 'Keep the failing test name.' }
+  expect(engineInstructions('auto', undefined, busy)).toBe('Keep the failing test name.')
+  expect(engineInstructions('auto', 'the user text', busy)).toBe('the user text')
+  expect(engineInstructions('manual', undefined, busy)).toBe(undefined)
+  expect(engineInstructions('auto', undefined, null)).toBe(undefined)
 })

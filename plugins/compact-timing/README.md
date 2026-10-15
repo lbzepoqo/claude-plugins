@@ -26,6 +26,8 @@ A `busy` mark that is never replaced stops the plugin from compacting. Claude Co
 { "autoCompactWindow": 500000 }
 ```
 
+Claude Code also compacts on its own: at `autoCompactWindow`, on a prompt that is too long, and while the session is idle before the prompt cache expires. These compactions do not wait for the mark. When the mark has a focus and the compaction has no instructions of its own, the plugin passes the focus as the instructions, so the summary still keeps what a `busy` step needs.
+
 ## Install
 
 ```sh

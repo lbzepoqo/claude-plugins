@@ -84,6 +84,14 @@ export const turnEnd = (
   compact: !isAborted && shouldCompact(current, tokens, limits),
 })
 
+/**
+ * The instructions for a compaction Claude Code starts itself (idle, hard limit, prompt too long):
+ * the mark's focus when nothing else was given. Only a `busy` mark outlives its turn, so this keeps
+ * the details of an unfinished step in the summary.
+ */
+export const engineInstructions = (trigger: string, instructions: string | undefined, current: Mark | null) =>
+  trigger === 'auto' && !instructions?.trim() && current?.focus ? current.focus : instructions
+
 /** A positive number from the settings, else the default: an empty or misspelled value must not compact every turn. */
 export const limitOption = (value: unknown, fallback: number): number => {
   const parsed = Number(value)
@@ -148,6 +156,11 @@ export const register: Register = (on, options) => {
   // Any compaction that replaces the conversation, also the automatic one at the hard limit, starts the
   // next period without a mark. A precompute installs nothing, so the mark stays.
   on('session.compact', async ($, e, next) => {
+    if (e.agentId === undefined && e.trigger === 'auto') {
+      const current = await read($, mark).catch(() => null)
+      const instructions = engineInstructions(e.trigger, e.instructions, current)
+      if (instructions !== e.instructions) e = { ...e, instructions }
+    }
     const result = await next(e)
     if (e.agentId === undefined && e.trigger !== 'precompute' && result.skip === undefined)
       await update($, mark, () => null).catch(() => undefined)
