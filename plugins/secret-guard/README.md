@@ -29,7 +29,8 @@ Set `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` in the `env` block of `~/.claude/settin
 - The mod treats a heredoc as data when `cat` or `tee` writes it out with a quoted delimiter, as in `cat > notes.py <<'EOF'`. It does not check that body. This holds only when the opener line has nothing but `&&` steps before it, and no `{`, `(` or `$(` is still open.
 - The mod checks every other heredoc body. `python3 - <<'EOF'` runs its body as code. A `<<EOF` body runs any `$(…)` in it. So a credential file name (`.env`) in such a body is blocked.
 - The mod does not read quotes in a heredoc body that runs. So a quoted `env` or `export` there is blocked, as in `grep -E "(export )?" f` in a `bash <<'EOF'` body.
-- A `python`, `python3`, `node`, `ruby` or `perl` script from a quoted heredoc is not shell, so a command name in its text (`note = "a; printenv"`) runs. Its file names are still checked, and so is a script that prints the whole environment. This holds under the same opener-line rule as for `cat`, so `python3 - <<'EOF' | sh` is still checked in full.
+- A `python`, `python3` or `node` script from a quoted heredoc is not shell, so a command name in its text (`note = "a; printenv"`) runs. This holds only when the script has none of the words `system`, `popen`, `subprocess`, `spawn`, `exec`, `child_process` or `pty`, and under the same opener-line rule as for `cat`, so `python3 - <<'EOF' | sh` is still checked in full. File names in the script are always checked.
+- A script that prints the whole environment is caught only as `print(os.environ)`, `json.dumps(os.environ)`, `console.log(process.env)` or `JSON.stringify(process.env)`. Other forms, such as `print(dict(os.environ))`, are not.
 - The mod splits commands with a simple reader, not a full shell parser. A command built to fool it gets through. Examples:
   - a heredoc end line with extra spaces, or with a `\` on the line before it
   - a delimiter such as `<<$END` or `<<A-B!`

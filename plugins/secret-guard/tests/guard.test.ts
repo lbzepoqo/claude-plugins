@@ -137,7 +137,10 @@ test('a command name in a quoted python or node script is text, while the files 
     `python3 <<'PY' > out.txt\nhelp = """\nprintenv\n"""\nPY`])
     expect(secretCommand(c, HOME)).toBeUndefined()
   for (const c of [`python3 - <<EOF\nx = "$(printenv)"\nEOF`, `python3 - <<'EOF' | sh\nprintenv\nEOF`, `{ python3 - <<'EOF'\nprintenv\nEOF\n} | bash`,
-    `python3 - <<'EOF'\nnote = "x; printenv"\nopen('.env')\nEOF`, `python3 - <<'EOF'\nprint(os.environ)\nEOF`])
+    `python3 - <<'EOF'\nnote = "x; printenv"\nopen('.env')\nEOF`, `python3 - <<'EOF'\nprint(os.environ)\nEOF`,
+    `python3 - <<'EOF'\nimport os\nos.system('printenv')\nEOF`, `python3 - <<'EOF'\nimport subprocess\nsubprocess.run('printenv', shell=True)\nEOF`,
+    `node <<'EOF'\nrequire('child_process').execSync('printenv', { stdio: 'inherit' })\nEOF`, "ruby <<'EOF'\nputs `printenv`\nEOF",
+    "perl <<'EOF'\nprint `env`;\nEOF"])
     expect(secretCommand(c, HOME)).toBeDefined()
 })
 

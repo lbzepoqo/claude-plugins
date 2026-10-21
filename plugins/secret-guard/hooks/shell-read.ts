@@ -97,38 +97,46 @@ const FILE_NAME = String.raw`(?:[^\s<>|;&'"\x60\\()#]|${QUOTED})+`
 const heredocOpener = (writer: string) =>
   new RegExp(String.raw`^(?:${AND_STEP}&&)*\s*(?:${writer})\s*<<-?\s*(['"])([\w.-]+)\1(?:\s*>>?\s*${FILE_NAME})?(?:\s+#.*)?\s*$`)
 const DATA_HEREDOC = heredocOpener(String.raw`cat(?:\s*>>?\s*${FILE_NAME})?|tee\s+(?:-a\s+)?${FILE_NAME}`)
-// A script read by an interpreter from a quoted heredoc is not shell, so a command name in its text does not run.
-const SCRIPT_HEREDOC = heredocOpener(String.raw`(?:python3?|node|ruby|perl)(?:\s+-)?`)
+// A python or node script from a quoted heredoc is not shell, so a command name in its text does not run, unless the script
+// starts a process. The spawn words are matched anywhere in the body, so `filesystem` or `cursor.execute` keep it checked too.
+const SCRIPT_HEREDOC = heredocOpener(String.raw`(?:python3?|node)(?:\s+-)?`)
+const SPAWNS = /system|popen|subprocess|spawn|exec|child_process|\bpty\b/i
 const HEREDOC = /(?<!<)<<(?!<)-?\s*\\?(['"]?)([\w.-]+)\1/g
 // ponytail: counts brackets without reading quotes, so a stray `)` in an earlier quote can hide a group; a parser if that matters.
 const isGrouped = (text: string) => (text.match(/[({]/g)?.length ?? 0) > (text.match(/[)}]/g)?.length ?? 0)
 
 // Drops data heredoc bodies. Any other body is kept, and no line in it opens a data heredoc. Inside an open `{`, `(`, `<(` or `$(` the
-// output of `cat` can go to bash (`{ cat <<'EOF' … } | bash`), so a body there is not data. With `dropScripts`, interpreter script
-// bodies go too; the file names in them still need the full text.
+// output of `cat` can go to bash (`{ cat <<'EOF' … } | bash`), so a body there is not data. With `dropScripts`, script bodies that
+// start no process go too. Both views read the lines the same way and differ only in what is returned.
 export const withoutDataHeredocs = (command: string, { dropScripts = false } = {}): string => {
   const kept: string[] = []
+  const scriptLines = new Set<number>()
   let endings: string[] = []
   let isDataBody = false
+  let scriptStart = -1
   for (const line of command.split('\n')) {
     if (endings.length > 0) {
-      if (line.trim() === endings[0]) endings.shift()
-      else if (isDataBody) continue
+      if (line.trim() === endings[0]) {
+        endings.shift()
+        if (scriptStart >= 0 && !SPAWNS.test(kept.slice(scriptStart).join('\n')))
+          for (let index = scriptStart; index < kept.length; index++) scriptLines.add(index)
+        scriptStart = -1
+      } else if (isDataBody) continue
       // A body is not read with shell quotes: in `<<EOF` they are plain text around a running `$(…)`, and python's `'''it's'''`
       // is an odd count. So quotes and `#` there must not hide what follows.
       kept.push(line.replace(/['"#]/g, ' '))
       continue
     }
     // After a trailing `\` the line continues the one before it, so its heredoc can belong to another command.
-    const opener =
-      kept.at(-1)?.endsWith('\\') || isGrouped([...kept, line].join('\n'))
-        ? null
-        : DATA_HEREDOC.exec(line) ?? (dropScripts ? SCRIPT_HEREDOC.exec(line) : null)
+    const isOpenerAlone = !kept.at(-1)?.endsWith('\\') && !isGrouped([...kept, line].join('\n'))
+    const opener = isOpenerAlone ? DATA_HEREDOC.exec(line) : null
+    const script = isOpenerAlone && !opener ? SCRIPT_HEREDOC.exec(line) : null
     isDataBody = opener !== null
-    endings = opener ? [opener[2] ?? ''] : [...line.matchAll(HEREDOC)].map(match => match[2] ?? '')
+    endings = opener ? [opener[2] ?? ''] : script ? [script[2] ?? ''] : [...line.matchAll(HEREDOC)].map(match => match[2] ?? '')
     kept.push(line)
+    scriptStart = script ? kept.length : -1
   }
-  return kept.join('\n')
+  return kept.filter((_, index) => !dropScripts || !scriptLines.has(index)).join('\n')
 }
 
 // Splits a segment into the words the path check reads. Whitespace, `<`, `>` and `=` split even inside quotes,
