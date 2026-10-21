@@ -1,0 +1,12 @@
+{
+  "name": "topic-nudge",
+  "version": "0.1.0",
+  "description": "Shows a toast when a prompt starts a different topic than the earlier requests in the session, so you can /clear first",
+  "author": {
+    "name": "lbzepoqo",
+    "url": "https://github.com/lbzepoqo"
+  },
+  "repository": "https://github.com/lbzepoqo/claude-plugins",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

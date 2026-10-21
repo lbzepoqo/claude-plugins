@@ -10,6 +10,16 @@
       "name": "compact-timing",
       "source": "./plugins/compact-timing",
       "description": "Compacts the conversation at task boundaries instead of at a fixed token count: the model marks the session busy or at a boundary, and the plugin compacts at the end of a turn when the mark and the context size allow it"
+    },
+    {
+      "name": "skill-hints",
+      "source": "./plugins/skill-hints",
+      "description": "Shows which installed skill fits each prompt you type, as a toast and a status line, and lists every skill in a /skill-hints pane"
+    },
+    {
+      "name": "topic-nudge",
+      "source": "./plugins/topic-nudge",
+      "description": "Shows a toast when a prompt starts a different topic than the earlier requests in the session, so you can /clear first"
     }
   ]
 }

@@ -1,0 +1,12 @@
+{
+  "name": "skill-hints",
+  "version": "0.1.0",
+  "description": "Shows which installed skill fits each prompt you type, as a toast and a status line, and lists every skill in a /skill-hints pane",
+  "author": {
+    "name": "lbzepoqo",
+    "url": "https://github.com/lbzepoqo"
+  },
+  "repository": "https://github.com/lbzepoqo/claude-plugins",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}
