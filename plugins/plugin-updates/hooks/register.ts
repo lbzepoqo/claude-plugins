@@ -5,10 +5,10 @@ import {
   checkPlugin,
   checkSkill,
   marketplaceRepos,
+  newsKeys,
   parseInstalls,
   parseSourceFile,
   reportText,
-  signature,
   statusText,
   toastText,
   type CopiedSkill,
@@ -20,49 +20,59 @@ const RETRY_AFTER = 60 * 60 * 1000
 const START_DELAY = 30_000
 const GIT_TIMEOUT = 5 * 60 * 1000
 
+type Stored = Report & { inputs: string }
+
 async function paths($: EngineInterface) {
-  const home = (await $.env.get('HOME')) ?? ''
+  const home = await $.env.get('HOME')
+  if (!home) throw new Error('HOME is not set')
   const configDir = (await $.env.get('CLAUDE_CONFIG_DIR')) || `${home}/.claude`
   return { configDir, cacheRoot: `${home}/.cache/plugin-updates` }
 }
 
-async function copiedSkills($: EngineInterface, configDir: string): Promise<CopiedSkill[]> {
+// The files a check reads; when they change (a plugin updated, a skill copied again) the stored report is stale.
+async function readInputs($: EngineInterface, configDir: string) {
+  const installed = await $.fs.read(`${configDir}/plugins/installed_plugins.json`)
   const skillsDir = `${configDir}/skills`
-  if (!(await $.fs.exists(skillsDir))) return []
-  const skills: CopiedSkill[] = []
-  for (const entry of await $.fs.list(skillsDir)) {
-    const file = `${skillsDir}/${entry.name}/SOURCE.txt`
-    if (!(await $.fs.exists(file))) continue
-    const skill = parseSourceFile(entry.name, await $.fs.read(file))
-    if (skill) skills.push(skill)
+  const sources: { name: string; text: string }[] = []
+  if (await $.fs.exists(skillsDir)) {
+    for (const entry of await $.fs.list(skillsDir)) {
+      const file = `${skillsDir}/${entry.name}/SOURCE.txt`
+      if (await $.fs.exists(file)) sources.push({ name: entry.name, text: await $.fs.read(file) })
+    }
   }
-  return skills
+  return { installed, sources, fingerprint: [installed, ...sources.map(source => source.text)].join('\n') }
 }
 
-async function check($: EngineInterface): Promise<Report> {
+async function check($: EngineInterface): Promise<Stored> {
   const { configDir, cacheRoot } = await paths($)
+  // A git that cannot start or runs past the timeout fails its own plugin, not the whole check.
   const git = (args: readonly string[]) =>
-    $.process.run(['git', ...args], { timeoutMs: GIT_TIMEOUT, env: { GIT_TERMINAL_PROMPT: '0' } })
+    $.process
+      .run(['git', ...args], { timeoutMs: GIT_TIMEOUT, env: { GIT_TERMINAL_PROMPT: '0' } })
+      .catch((error: unknown) => ({ exitCode: 1, stdout: '', stderr: error instanceof Error ? error.message : String(error) }))
   const mirrors = new Mirrors(git, cacheRoot)
-  const installs = parseInstalls(await $.fs.read(`${configDir}/plugins/installed_plugins.json`))
+  const inputs = await readInputs($, configDir)
   const repos = marketplaceRepos(await $.fs.read(`${configDir}/plugins/known_marketplaces.json`))
+  const skills = inputs.sources
+    .map(source => parseSourceFile(source.name, source.text))
+    .filter((skill): skill is CopiedSkill => skill !== undefined)
   const findings = await Promise.all([
-    ...installs.map(install => checkPlugin(git, mirrors, install, repos.get(install.marketplace))),
-    ...(await copiedSkills($, configDir)).map(skill => checkSkill(git, mirrors, skill)),
+    ...parseInstalls(inputs.installed).map(install => checkPlugin(git, mirrors, install, repos.get(install.marketplace))),
+    ...skills.map(skill => checkSkill(git, mirrors, skill)),
   ])
-  return { checkedAt: await $.clock.now(), findings }
+  return { checkedAt: await $.clock.now(), findings, inputs: inputs.fingerprint }
 }
 
-// Several sessions may start together; the attempt time in the store keeps them from fetching the same mirrors at once.
-let running: Promise<Report | undefined> | undefined
+let running: Promise<Stored | undefined> | undefined
 
-function runCheck($: EngineInterface): Promise<Report | undefined> {
+function runCheck($: EngineInterface): Promise<Stored | undefined> {
   running ??= (async () => {
     try {
       await $.store.set('lastAttempt', await $.clock.now())
       const report = await check($)
       await $.store.set('report', report)
-      await show($, report, true)
+      $.ui.status(statusText(report))
+      await toastNews($, report)
       return report
     } catch (error) {
       $.ui.log(`plugin-updates: check failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -74,31 +84,37 @@ function runCheck($: EngineInterface): Promise<Report | undefined> {
   return running
 }
 
-async function show($: EngineInterface, report: Report | undefined, mayToast: boolean) {
-  $.ui.status(statusText(report))
-  if (!mayToast || !report) return
-  const news = signature(report)
-  if (news === '' || news === (await $.store.get('toasted'))) return
-  await $.store.set('toasted', news)
-  $.ui.toast(toastText(report), { timeoutMs: 12_000 })
+async function toastNews($: EngineInterface, report: Report) {
+  const keys = newsKeys(report)
+  const seen = new Set(((await $.store.get('toasted')) as string[] | undefined) ?? [])
+  await $.store.set('toasted', keys)
+  if (keys.some(key => !seen.has(key))) $.ui.toast(toastText(report), { timeoutMs: 12_000 })
+}
+
+// Sessions started together share the store: the attempt time written here keeps all but one from fetching the same mirrors.
+async function claimAttempt($: EngineInterface, now: number): Promise<boolean> {
+  const lastAttempt = ((await $.store.get('lastAttempt')) as number | undefined) ?? 0
+  if (now - lastAttempt < RETRY_AFTER) return false
+  await $.store.set('lastAttempt', now)
+  return true
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({ name: 'plugin-updates', description: 'Check installed plugins and copied skills for upstream updates' })
-    const report = (await $.store.get('report')) as Report | undefined
-    const lastAttempt = ((await $.store.get('lastAttempt')) as number | undefined) ?? 0
+    const stored = (await $.store.get('report')) as Stored | undefined
+    const { configDir } = await paths($)
+    const changed = stored !== undefined && stored.inputs !== (await readInputs($, configDir)).fingerprint
     const now = await $.clock.now()
-    await show($, report, false)
-    if ((!report || now - report.checkedAt >= DAY) && now - lastAttempt >= RETRY_AFTER) {
-      $.clock.after(START_DELAY, () => void runCheck($))
-    }
+    $.ui.status(changed ? undefined : statusText(stored))
+    const due = !stored || changed || now - stored.checkedAt >= DAY
+    if (due && (changed || (await claimAttempt($, now)))) $.clock.after(START_DELAY, () => void runCheck($))
     return next(e)
   })
 
   on('command.run', { command: 'plugin-updates' }, async $ => {
     const report = await runCheck($)
     if (!report) return { text: 'The check failed; the debug log has the reason.' }
-    return { text: reportText(report, await $.clock.now()) }
+    return { text: reportText(report) }
   })
 }

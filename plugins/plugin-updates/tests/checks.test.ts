@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { httpsUrl, marketplaceRepos, mirrorDir, parseInstalls, parseSourceFile, safePath, safeRef, signature, statusText, type Report } from '../hooks/checks'
+import { Mirrors, checkPlugin, compareVersions, httpsUrl, marketplaceRepos, mirrorDir, newsKeys, parseInstalls, parseSourceFile, safePath, safeRef, statusText, type Git, type Report } from '../hooks/checks'
 
 describe('input from marketplace files', () => {
   test('accepts GitHub repos and plain https URLs', () => {
@@ -87,10 +87,59 @@ describe('what the person sees', () => {
     expect(statusText({ checkedAt: 0, findings: [report.findings[1]!] })).toBeUndefined()
   })
 
-  test('the toast signature changes with a new upstream commit only', () => {
-    const later: Report = { ...report, checkedAt: 1 }
-    expect(signature(later)).toBe(signature(report))
-    const news: Report = { ...report, findings: [{ ...report.findings[0]!, behind: 538, commits: ['9f00000 2026-10-22 Next'] }, ...report.findings.slice(1)] }
-    expect(signature(news)).not.toBe(signature(report))
+  test('the toast keys change with a new upstream commit, not when an item is updated away', () => {
+    const tipped: Report = { ...report, findings: report.findings.map(item => ({ ...item, tip: item.status === 'behind' ? 'a'.repeat(40) : undefined })) }
+    const seen = new Set(newsKeys(tipped))
+    const updatedAway: Report = { ...tipped, findings: tipped.findings.slice(0, 2) }
+    expect(newsKeys(updatedAway).every(key => seen.has(key))).toBe(true)
+    const news: Report = { ...tipped, findings: [{ ...tipped.findings[0]!, tip: 'b'.repeat(40) }, ...tipped.findings.slice(1)] }
+    expect(newsKeys(news).some(key => !seen.has(key))).toBe(true)
+  })
+
+  test('one plugin in two scopes shows once in the status line', () => {
+    const twoScopes: Report = {
+      checkedAt: 0,
+      findings: [
+        { name: 'cloudflare@cloudflare (user scope)', kind: 'plugin', status: 'behind', behind: 3, commits: [] },
+        { name: 'cloudflare@cloudflare (local scope /q)', kind: 'plugin', status: 'behind', behind: 13, commits: [] },
+      ],
+    }
+    expect(statusText(twoScopes)).toBe('updates: cloudflare 13')
+  })
+})
+
+describe('versions', () => {
+  test('an installed version newer than the listing is not behind', () => {
+    expect(compareVersions('1.2.0', '1.1.9')).toBeGreaterThan(0)
+    expect(compareVersions('1.0', '1.0.0')).toBe(0)
+    expect(compareVersions('1.0.0', '1.0.1')).toBeLessThan(0)
+  })
+})
+
+describe('checking against a fake git', () => {
+  const calls: string[][] = []
+  const fakeGit = (listing: string): Git => async args => {
+    calls.push([...args])
+    if (args[2] === 'rev-parse' && args[3] === '--git-dir') return { exitCode: 128, stdout: '', stderr: 'not a repo' }
+    if (args[0] === 'clone') return { exitCode: 0, stdout: '', stderr: '' }
+    if (args.includes('rev-parse')) return { exitCode: 0, stdout: `${'c'.repeat(40)}\n`, stderr: '' }
+    if (args[2] === 'show') return { exitCode: 0, stdout: listing, stderr: '' }
+    return { exitCode: 1, stdout: '', stderr: 'unexpected' }
+  }
+  const repo = { url: 'https://github.com/o/r.git', file: '.claude-plugin/marketplace.json' }
+  const install = { key: 'p@m', plugin: 'p', marketplace: 'm', where: '', sha: 'a'.repeat(40) }
+
+  test('a malformed upstream marketplace.json leaves that plugin unchecked', async () => {
+    const result = await checkPlugin(fakeGit('{ not json'), new Mirrors(fakeGit('{ not json'), '/c'), install, repo)
+    expect(result.status).toBe('unchecked')
+    expect(result.reason).toBe('upstream marketplace.json is not valid JSON')
+  })
+
+  test('two spellings of one repository clone it once', async () => {
+    calls.length = 0
+    const git = fakeGit('{}')
+    const mirrors = new Mirrors(git, '/c')
+    await Promise.all([mirrors.sync('https://github.com/o/r.git'), mirrors.sync('https://github.com/o/r')])
+    expect(calls.filter(args => args[0] === 'clone').length).toBe(1)
   })
 })

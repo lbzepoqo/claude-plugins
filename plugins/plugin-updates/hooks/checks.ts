@@ -11,6 +11,8 @@ export type Finding = {
   action?: string
   reason?: string
   upstream?: string
+  // The upstream commit compared against; a new one is news for the toast.
+  tip?: string
 }
 
 export type Report = { checkedAt: number; findings: Finding[] }
@@ -101,7 +103,7 @@ export function marketplaceRepos(json: string): Map<string, MarketplaceRepo | st
     const url = httpsUrl(kind === 'git' ? { source: 'url', url: source?.url } : source)
     const file = source?.path === undefined ? '.claude-plugin/marketplace.json' : safePath(source.path)
     if (!url || !file) {
-      repos.set(name, 'marketplace URL is not a plain https URL')
+      repos.set(name, url ? 'marketplace file path is not a plain relative path' : 'marketplace URL is not a plain https URL')
       continue
     }
     const ref = source?.ref === undefined ? undefined : safeRef(source.ref)
@@ -125,9 +127,10 @@ export function parseSourceFile(name: string, text: string): CopiedSkill | undef
   return { name, url, commit: match[2]!, paths: paths.filter((path): path is string => !!path) }
 }
 
-// One fetch per repository and check, shared by every plugin and skill that comes from it.
+// One fetch per repository and one listing read per marketplace for each check, shared by every plugin and skill.
 export class Mirrors {
   private readonly synced = new Map<string, Promise<string | undefined>>()
+  private readonly listings = new Map<string, Promise<{ dir: string; tip: string; listing: Listing } | string>>()
 
   constructor(
     private readonly git: Git,
@@ -136,22 +139,54 @@ export class Mirrors {
 
   // Resolves the mirror's directory, or undefined when it could not be cloned or fetched.
   sync(url: string): Promise<string | undefined> {
-    let pending = this.synced.get(url)
+    const dir = mirrorDir(this.cacheRoot, url)
+    let pending = this.synced.get(dir)
     if (!pending) {
-      pending = this.fetch(url)
-      this.synced.set(url, pending)
+      pending = this.fetch(url, dir)
+      this.synced.set(dir, pending)
     }
     return pending
   }
 
-  private async fetch(url: string): Promise<string | undefined> {
-    const dir = mirrorDir(this.cacheRoot, url)
+  // The marketplace's latest listing, or why it could not be read.
+  listing(repo: MarketplaceRepo) {
+    const key = `${repo.url} ${repo.ref ?? ''} ${repo.file}`
+    let pending = this.listings.get(key)
+    if (!pending) {
+      pending = this.readListing(repo)
+      this.listings.set(key, pending)
+    }
+    return pending
+  }
+
+  private async readListing(repo: MarketplaceRepo) {
+    const dir = await this.sync(repo.url)
+    if (!dir) return `could not fetch ${repo.url}`
+    const tip = await resolveCommit(this.git, dir, repo.ref ?? 'HEAD')
+    if (!tip) return `marketplace ${repo.ref ?? 'default branch'} not found upstream`
+    const text = await readAt(this.git, dir, tip, repo.file)
+    if (text === undefined) return 'marketplace.json not found upstream'
+    try {
+      return { dir, tip, listing: JSON.parse(text) as Listing }
+    } catch {
+      return 'upstream marketplace.json is not valid JSON'
+    }
+  }
+
+  private async fetch(url: string, dir: string): Promise<string | undefined> {
     // A bare mirror answers "."; anything else is a missing folder or a repository further up.
-    const existing = await this.git(['-C', dir, 'rev-parse', '--git-dir']).catch(() => undefined)
-    const result = existing?.exitCode === 0 && existing.stdout.trim() === '.'
-      ? await this.git(['-C', dir, 'fetch', '--quiet', '--prune', 'origin'])
-      : await this.git(['clone', '--quiet', '--mirror', '--filter=blob:none', '--', url, dir])
-    return result.exitCode === 0 ? dir : undefined
+    const existing = await this.git(['-C', dir, 'rev-parse', '--git-dir'])
+    if (existing.exitCode !== 0 || existing.stdout.trim() !== '.') {
+      const clone = await this.git(['clone', '--quiet', '--mirror', '--filter=blob:none', '--', url, dir])
+      return clone.exitCode === 0 ? dir : undefined
+    }
+    const fetched = await this.git(['-C', dir, 'fetch', '--quiet', '--prune', 'origin'])
+    if (fetched.exitCode !== 0) return undefined
+    // Fetch never moves a mirror's HEAD, so a renamed default branch would leave it pointing at nothing.
+    const head = await this.git(['-C', dir, 'ls-remote', '--symref', 'origin', 'HEAD'])
+    const branch = /^ref: (refs\/heads\/\S+)\tHEAD$/m.exec(head.stdout)?.[1]
+    if (head.exitCode === 0 && branch && safeRef(branch)) await this.git(['-C', dir, 'symbolic-ref', 'HEAD', branch])
+    return dir
   }
 }
 
@@ -165,25 +200,20 @@ async function readAt(git: Git, dir: string, commit: string, file: string): Prom
   return result.exitCode === 0 ? result.stdout : undefined
 }
 
-// Commits between `from` and `to` that touch `paths` (the whole repository when empty).
-async function missing(git: Git, dir: string, from: string, to: string, paths: readonly string[]) {
-  const fromCommit = await resolveCommit(git, dir, from)
-  if (!fromCommit) return undefined
-  const range = [`${fromCommit}..${to}`, '--', ...paths]
-  const count = await git(['-C', dir, 'rev-list', '--count', ...range])
-  const log = await git(['-C', dir, 'log', `-n${MAX_COMMITS}`, '--format=%h %cs %s', ...range])
-  if (count.exitCode !== 0 || log.exitCode !== 0) return undefined
-  return { behind: Number(count.stdout.trim()), commits: log.stdout.split('\n').filter(Boolean) }
-}
-
 function finding(name: string, kind: Finding['kind'], fields: Partial<Finding>): Finding {
   return { name, kind, status: 'unchecked', behind: 0, commits: [], ...fields }
 }
 
+// Counts and lists the commits between the installed `from` and `to` that touch `paths` (the whole repository when empty).
 async function compare(git: Git, dir: string, from: string, to: string, paths: readonly string[], base: Finding): Promise<Finding> {
-  const result = await missing(git, dir, from, to, paths)
-  if (!result) return { ...base, status: 'unchecked', reason: `installed commit ${from.slice(0, 7)} not found upstream` }
-  return { ...base, status: result.behind > 0 ? 'behind' : 'current', ...result }
+  const fromCommit = await resolveCommit(git, dir, from)
+  if (!fromCommit) return { ...base, reason: `installed commit ${from.slice(0, 7)} not found upstream` }
+  const range = [`${fromCommit}..${to}`, '--', ...paths]
+  const count = await git(['-C', dir, 'rev-list', '--count', ...range])
+  const log = await git(['-C', dir, 'log', `-n${MAX_COMMITS}`, '--format=%h %cs %s', ...range])
+  if (count.exitCode !== 0 || log.exitCode !== 0) return { ...base, reason: `git could not list the commits: ${(count.stderr || log.stderr).trim().split('\n')[0]}` }
+  const behind = Number(count.stdout.trim())
+  return { ...base, status: behind > 0 ? 'behind' : 'current', behind, commits: log.stdout.split('\n').filter(Boolean), tip: to }
 }
 
 function pluginPath(source: string, listing: Listing): string | undefined {
@@ -192,27 +222,37 @@ function pluginPath(source: string, listing: Listing): string | undefined {
   return safePath(source)
 }
 
+// Negative when `a` is older; versions that are not dotted numbers compare as different.
+export function compareVersions(a: string, b: string): number {
+  const parse = (version: string) => (/^\d+(\.\d+)*$/.test(version) ? version.split('.').map(Number) : undefined)
+  const left = parse(a)
+  const right = parse(b)
+  if (!left || !right) return a === b ? 0 : -1
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    const difference = (left[i] ?? 0) - (right[i] ?? 0)
+    if (difference !== 0) return difference
+  }
+  return 0
+}
+
 export async function checkPlugin(git: Git, mirrors: Mirrors, install: Install, repo: MarketplaceRepo | string | undefined): Promise<Finding> {
   const label = install.where ? `${install.key} (${install.where})` : install.key
   const base = finding(label, 'plugin', { action: `claude plugin update ${install.key}` })
   if (repo === undefined) return { ...base, reason: 'marketplace not found in known_marketplaces.json' }
   if (typeof repo === 'string') return { ...base, reason: repo }
 
-  const dir = await mirrors.sync(repo.url)
-  if (!dir) return { ...base, reason: `could not fetch ${repo.url}` }
-  const tip = await resolveCommit(git, dir, repo.ref ?? 'HEAD')
-  const text = tip && (await readAt(git, dir, tip, repo.file))
-  if (!tip || !text) return { ...base, reason: 'marketplace.json not found upstream' }
-  const listing = JSON.parse(text) as Listing
+  const read = await mirrors.listing(repo)
+  if (typeof read === 'string') return { ...base, reason: read }
+  const { dir, tip, listing } = read
   const entry = listing.plugins?.find(plugin => plugin.name === install.plugin)
   if (!entry?.source) return { ...base, reason: 'no longer listed in its marketplace' }
 
   // A plugin installed without a commit (one inside a marketplace that is not a git checkout) is compared by version.
   if (!install.sha) {
     if (!entry.version || !install.version) return { ...base, reason: 'no installed commit or version to compare' }
-    return entry.version === install.version
+    return compareVersions(install.version, entry.version) >= 0
       ? { ...base, status: 'current' }
-      : { ...base, status: 'behind', behind: 0, upstream: `version ${install.version} → ${entry.version}` }
+      : { ...base, status: 'behind', upstream: `version ${install.version} → ${entry.version}`, tip: entry.version }
   }
 
   if (typeof entry.source === 'string') {
@@ -226,8 +266,9 @@ export async function checkPlugin(git: Git, mirrors: Mirrors, install: Install, 
     return { ...base, reason: `"${source.source ?? 'unknown'}" plugin sources are not checked` }
   }
   const url = httpsUrl(source)
+  if (!url) return { ...base, reason: 'plugin source is not a plain https repository' }
   const path = source.source === 'git-subdir' ? safePath(source.path) : ''
-  if (!url || path === undefined) return { ...base, reason: 'plugin source is not a plain https repository' }
+  if (path === undefined) return { ...base, reason: 'git-subdir source has no plain relative path' }
   const pinned = source.sha !== undefined ? (SHA.test(source.sha) ? source.sha : undefined) : undefined
   const ref = source.ref !== undefined ? safeRef(source.ref) : 'HEAD'
   if ((source.sha !== undefined && !pinned) || !ref) return { ...base, reason: 'plugin source has an unusual ref or sha' }
@@ -262,18 +303,21 @@ function amount(item: Finding): string {
 }
 
 export function statusText(report: Report | undefined): string | undefined {
-  const behind = pending(report)
-  if (behind.length === 0) return undefined
-  const shown = behind.slice(0, 3).map(item => `${item.name.split('@')[0]!.split(' ')[0]} ${item.upstream ? 'new version' : item.behind}`)
-  return `updates: ${shown.join(', ')}${behind.length > 3 ? ` +${behind.length - 3}` : ''}`
+  // Installs of one plugin in several scopes show once, with the larger gap.
+  const byName = new Map<string, Finding>()
+  for (const item of pending(report)) {
+    const name = item.name.split('@')[0]!.split(' ')[0]!
+    const shown = byName.get(name)
+    if (!shown || item.behind > shown.behind) byName.set(name, item)
+  }
+  if (byName.size === 0) return undefined
+  const parts = [...byName].slice(0, 3).map(([name, item]) => `${name} ${item.upstream ? 'new version' : item.behind}`)
+  return `updates: ${parts.join(', ')}${byName.size > 3 ? ` +${byName.size - 3}` : ''}`
 }
 
-// Changes when anything new appears upstream, so the daily toast repeats only for news.
-export function signature(report: Report | undefined): string {
-  return pending(report)
-    .map(item => `${item.name}:${item.commits[0] ?? item.upstream ?? ''}`)
-    .sort()
-    .join('|')
+// One entry per pending item and upstream commit; the toast fires only for an entry not seen before.
+export function newsKeys(report: Report | undefined): string[] {
+  return pending(report).map(item => `${item.name}:${item.tip ?? item.upstream ?? ''}`)
 }
 
 export function toastText(report: Report): string {
@@ -282,14 +326,12 @@ export function toastText(report: Report): string {
   return `Updates available: ${names.join(', ')}${behind.length > 3 ? ` and ${behind.length - 3} more` : ''}. /plugin-updates lists them.`
 }
 
-export function reportText(report: Report | undefined, now: number): string {
-  if (!report) return 'No check has run yet.'
+export function reportText(report: Report): string {
   const lines: string[] = []
   const behind = pending(report)
   const unchecked = report.findings.filter(item => item.status === 'unchecked')
   const current = report.findings.filter(item => item.status === 'current')
-  const minutes = Math.round((now - report.checkedAt) / 60_000)
-  lines.push(`Checked ${minutes < 1 ? 'just now' : `${minutes} min ago`}: ${behind.length} behind, ${current.length} current, ${unchecked.length} not checked.`)
+  lines.push(`${behind.length} behind, ${current.length} current, ${unchecked.length} not checked.`)
   for (const item of behind) {
     lines.push('', `${item.kind === 'skill' ? 'Skill' : 'Plugin'} ${item.name}: ${amount(item)} behind`)
     for (const commit of item.commits) lines.push(`  ${commit}`)
