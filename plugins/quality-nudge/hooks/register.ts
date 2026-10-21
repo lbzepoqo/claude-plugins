@@ -55,7 +55,9 @@ async function quietCommit(git: Git, root: string, start: HeadState): Promise<st
 
 // The top of the repository a commit runs in: a -C or cd directory, else the session's.
 async function repositoryRoot($: EngineInterface, git: Git, directory: string | null): Promise<string> {
-  const cwd = directory === null ? undefined : expandHome(directory, (await $.env.get('HOME')) ?? '')
+  // The order of Node's os.homedir(): USERPROFILE exists only on Windows, where HOME is usually unset.
+  const home = (await $.env.get('USERPROFILE')) || (await $.env.get('HOME')) || ''
+  const cwd = directory === null ? undefined : expandHome(directory, home)
   return (await git(cwd, ['rev-parse', '--show-toplevel'])) ?? cwd ?? (await $.session.cwd())
 }
 

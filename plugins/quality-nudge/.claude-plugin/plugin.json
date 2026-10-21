@@ -1,6 +1,6 @@
 {
   "name": "quality-nudge",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Reminds Claude to run code-review after a code commit that no review saw: from 30 changed lines, or any change to guard code; adds /simplify from 300 lines",
   "author": {
     "name": "lbzepoqo",

@@ -3,15 +3,17 @@ import { expect, mock, test } from 'claude-code/testing'
 
 // A repository whose HEAD moves on each Bash call that commits, reported in the result's gitOperation as
 // the Bash tool does. Commit cN was authored at N * 100 seconds.
-function fakeRepository(on: On, { reviewFails = false, reflogOff = false } = {}) {
+function fakeRepository(on: On, { reviewFails = false, reflogOff = false, env = { HOME: '/home/user' } as Record<string, string> } = {}) {
   let commitCount = 0
   const reflog: string[] = []
+  const gitDirectories: (string | undefined)[] = []
   const answer = (stdout: string, exitCode = 0) => ({
     value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
   })
   on('session.cwd', () => ({ value: '/repo' }))
-  on('env.get', () => ({ value: '/home/user' }))
+  on('env.get', (_$, e) => ({ value: env[e.name] }))
   on('process.run', (_$, e) => {
+    gitDirectories.push(e.init?.cwd)
     const args = e.argv.slice(3).filter(arg => arg !== '--')
     const last = args[args.length - 1] ?? ''
     const head = `c${commitCount}`
@@ -49,6 +51,7 @@ function fakeRepository(on: On, { reviewFails = false, reflogOff = false } = {})
     const gitOperation = commits && !/ -q/.test(e.command) ? { commit: { sha: `c${commitCount}`, kind: 'committed' as const } } : {}
     return { result: { stdout: '', stderr: '', interrupted: false, gitOperation } }
   })
+  return { gitDirectories }
 }
 
 test('reminds after each unreviewed code commit, not after a fix commit that follows a review', async ($, on) => {
@@ -106,4 +109,11 @@ test('a review covers only the repository it ran in', async ($, on) => {
   expect(other.context?.[0]).toContain('/code-review did not run')
   const same = await $.tool.call({ tool: 'Bash', command: 'git commit -m "feat: commit 2"' })
   expect(same.context).toBeUndefined()
+})
+
+test('a cd to ~ uses USERPROFILE when HOME is unset (Windows)', async ($, on) => {
+  mock.clock(on, { now: 1_000_000 })
+  const { gitDirectories } = fakeRepository(on, { env: { USERPROFILE: '/users/u' } })
+  await $.tool.call({ tool: 'Bash', command: 'cd ~/proj && git commit -m "feat: commit 1"' })
+  expect(gitDirectories).toContain('/users/u/proj')
 })
