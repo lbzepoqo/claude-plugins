@@ -1,6 +1,6 @@
 {
   "name": "skill-hints",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Shows which installed skill fits each prompt you type, as a toast and a status line, and lists every skill in a /skill-hints pane",
   "author": {
     "name": "lbzepoqo",
@@ -13,7 +13,7 @@
     "hiddenSkills": {
       "type": "string",
       "title": "Hidden skills",
-      "description": "Skills never suggested, by full or short name, comma separated (for example a router skill that fits every prompt)",
+      "description": "Skills never suggested, comma separated. A short name hides every skill of that name; write plugin:name to hide one (for example a router skill that fits every prompt)",
       "default": ""
     }
   }

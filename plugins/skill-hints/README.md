@@ -25,7 +25,7 @@ Esc closes the pane. The Claude mobile app has no text field yet, so it shows th
 
 ## Options
 
-`hiddenSkills`: skills never suggested, by full or short name, comma separated. Useful for a router skill whose description fits every prompt. Change it with `/plugin configure skill-hints@lbzepoqo` in Claude Code, or from the shell:
+`hiddenSkills`: skills never suggested, comma separated. A short name such as `code-review` hides every skill of that name; write `plugin:name` to hide only one. Useful for a router skill whose description fits every prompt. Change it with `/plugin configure skill-hints@lbzepoqo` in Claude Code, or from the shell:
 
 ```sh
 echo '{"hiddenSkills": "my-router-skill"}' | claude plugin configure skill-hints@lbzepoqo --values-stdin
