@@ -21,6 +21,8 @@ When something is behind:
 
 `/plugin-updates` runs the check right away and lists, for each plugin that is behind, the latest missing commits and the command that updates it, for example `claude plugin update claude-hud@claude-hud`. It also lists what it could not check and why.
 
+A plugin with new commits under an unchanged version is held, not behind. Claude Code replaces an installed copy only when the version changes, so `claude plugin update` would do nothing until the author bumps it. A held plugin gets no status line entry and no toast; `/plugin-updates` lists it under held with its missing commits.
+
 ## Copied skills
 
 A skill copied by hand from a repository can be checked too. Put a `SOURCE.txt` in the skill's folder:
