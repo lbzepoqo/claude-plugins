@@ -1,0 +1,9 @@
+{
+  "name": "quality-nudge",
+  "version": "0.3.0",
+  "description": "Reminds Claude to run code-review after a code commit of 30 or more changed lines or any change to guard code, adds /simplify for changes of 300 or more lines",
+  "author": {
+    "name": "lbzepoqo",
+    "url": "https://github.com/lbzepoqo"
+  }
+}

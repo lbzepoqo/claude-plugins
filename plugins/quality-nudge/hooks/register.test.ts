@@ -1,0 +1,71 @@
+import type { On } from 'claude-code'
+import { expect, mock, test } from 'claude-code/testing'
+
+// A repository whose HEAD moves on each Bash call that commits, reported in the result's gitOperation as
+// the Bash tool does. Commit cN was authored at N * 100 seconds.
+function fakeRepository(on: On) {
+  let commitCount = 0
+  const reflog: string[] = []
+  const answer = (stdout: string, exitCode = 0) => ({
+    value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  })
+  on('session.cwd', () => ({ value: '/repo' }))
+  on('process.run', (_$, e) => {
+    const args = e.argv.slice(3).filter(arg => arg !== '--')
+    const last = args[args.length - 1] ?? ''
+    const head = `c${commitCount}`
+    if (args[0] === 'rev-parse') return answer('/repo')
+    // A pulled commit (uN) adds no code of its own.
+    if (args[0] === 'diff-tree' && last.startsWith('u')) return answer('')
+    if (args[0] === 'diff-tree') return answer('20\t5\tsrc/a.ts\x0010\t0\tsrc/b.ts\x003\t1\tREADME.md\x00')
+    if (args.includes('-g')) return answer(reflog.join('\n'))
+    if (args.includes('--format=%at')) {
+      const revision = last === 'HEAD' ? head : last
+      return answer(String(Number(revision.slice(1)) * 100))
+    }
+    if (args.includes('--format=%s%x09%P')) return answer(`feat: commit ${last.slice(1)}\tc${Number(last.slice(1)) - 1}`)
+    return answer('', 128)
+  })
+  on('tool.call', { tool: 'Skill' }, (_$, e) => ({ result: { success: true, commandName: e.skill, status: 'inline' as const } }))
+  on('tool.call', { tool: 'Bash' }, (_$, e) => {
+    const commits = /git commit/.test(e.command)
+    if (commits) {
+      commitCount++
+      reflog.unshift(`c${commitCount}\tHEAD@{1000}\tcommit: feat: commit ${commitCount}`)
+    }
+    if (/git pull/.test(e.command)) reflog.unshift('u9\tHEAD@{1000}\tpull: Fast-forward')
+    // `git commit -q` prints nothing, so the engine does not report it.
+    const gitOperation = commits && !/ -q/.test(e.command) ? { commit: { sha: `c${commitCount}`, kind: 'committed' as const } } : {}
+    return { result: { stdout: '', stderr: '', interrupted: false, gitOperation } }
+  })
+}
+
+test('reminds after each unreviewed code commit, not after a fix commit that follows a review', async ($, on) => {
+  mock.clock(on, { now: 1_000_000 })
+  fakeRepository(on)
+
+  const first = await $.tool.call({ tool: 'Bash', command: 'git commit -m "feat: commit 1"' })
+  expect(first.context?.[0]).toContain('quality-nudge: This commit changes 35 lines in 2 code files')
+
+  const second = await $.tool.call({ tool: 'Bash', command: 'git commit -m "feat: commit 2"' })
+  expect(second.context?.[0]).toContain('This commit changes 35 lines')
+
+  // The review runs at 1,000 s, after commit 3's parent (c2, authored at 200 s).
+  await $.tool.call({ tool: 'Skill', skill: 'code-review' })
+  const fix = await $.tool.call({ tool: 'Bash', command: 'git commit -m "fix: review findings"' })
+  expect(fix.context).toBeUndefined()
+})
+
+test('sees a quiet commit by the HEAD it moved', async ($, on) => {
+  mock.clock(on, { now: 1_000_000 })
+  fakeRepository(on)
+  const quiet = await $.tool.call({ tool: 'Bash', command: 'git commit -qm "feat: commit 1"' })
+  expect(quiet.context?.[0]).toContain('This commit changes 35 lines in 2 code files')
+})
+
+test('finds a quiet commit followed by a pull in the same command', async ($, on) => {
+  mock.clock(on, { now: 1_000_000 })
+  fakeRepository(on)
+  const pulled = await $.tool.call({ tool: 'Bash', command: 'git commit -qam "feat: commit 1"; git pull' })
+  expect(pulled.context?.[0]).toContain('This commit changes 35 lines in 2 code files')
+})
