@@ -1,6 +1,6 @@
 {
   "name": "skill-hints",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shows which installed skill fits each prompt you type, as a toast and a status line, and lists every skill in a /skill-hints pane",
   "author": {
     "name": "lbzepoqo",
@@ -8,5 +8,13 @@
   },
   "repository": "https://github.com/lbzepoqo/claude-plugins",
   "license": "MIT",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "hiddenSkills": {
+      "type": "string",
+      "title": "Hidden skills",
+      "description": "Skills never suggested, by full or short name, comma separated (for example a router skill that fits every prompt)",
+      "default": ""
+    }
+  }
 }

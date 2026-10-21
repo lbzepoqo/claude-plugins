@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'claude-code/testing'
-import { NO_SKILL, classifierLabels, classifierText, groupByOrigin, hintFor, hintToast, shortName, skillCatalog, suggestable } from '../hooks/skills'
+import { NO_SKILL, age, classifierLabels, classifierText, filterSkills, groupByOrigin, hiddenNames, hintFor, hintToast, promptWithSkill, shortName, skillCatalog, suggestable } from '../hooks/skills'
 
 const COMMANDS = [
   { name: 'clear', description: 'Clear the conversation', source: 'builtin' },
@@ -63,17 +63,43 @@ describe('groupByOrigin', () => {
   })
 })
 
-describe('names and routers', () => {
+describe('names and hidden skills', () => {
   test('shortName drops the plugin prefix', () => {
     expect(shortName('mattpocock-skills:implement')).toBe('implement')
     expect(shortName('humanizer')).toBe('humanizer')
   })
 
-  test('router skills are never suggested', () => {
+  test('hidden skills are never suggested, by full or short name', () => {
     const catalog = [
       { name: 'mattpocock-skills:ask-matt', description: 'Routes to a skill', origin: 'mattpocock-skills' },
       { name: 'humanizer', description: 'Rewrite text', origin: 'user' },
     ]
-    expect(suggestable(catalog).map(skill => skill.name)).toEqual(['humanizer'])
+    expect(suggestable(catalog, hiddenNames(' ask-matt, ')).map(skill => skill.name)).toEqual(['humanizer'])
+    expect(suggestable(catalog, hiddenNames('mattpocock-skills:ask-matt')).map(skill => skill.name)).toEqual(['humanizer'])
+    expect(suggestable(catalog, hiddenNames(undefined))).toHaveLength(2)
+  })
+})
+
+describe('pane helpers', () => {
+  test('the filter matches every word in name, description or origin', () => {
+    const catalog = skillCatalog(COMMANDS, 'skill-hints')
+    expect(filterSkills(catalog, '').length).toBe(catalog.length)
+    expect(filterSkills(catalog, 'REWRITE text').map(skill => skill.name)).toEqual(['humanizer'])
+    expect(filterSkills(catalog, 'mattpocock').map(skill => skill.name)).toEqual(['mattpocock-skills:implement'])
+    expect(filterSkills(catalog, 'rewrite spec')).toEqual([])
+  })
+
+  test('the skill command goes in front of the draft', () => {
+    const commands = ['humanizer', 'tdd']
+    expect(promptWithSkill('', 'humanizer', commands)).toBe('/humanizer ')
+    expect(promptWithSkill('fix this text', 'humanizer', commands)).toBe('/humanizer fix this text')
+    expect(promptWithSkill('/tdd fix this', 'humanizer', commands)).toBe('/humanizer fix this')
+    expect(promptWithSkill('/home/app.log shows a crash', 'humanizer', commands)).toBe('/humanizer /home/app.log shows a crash')
+  })
+
+  test('age names the largest whole unit', () => {
+    expect(age(0, 30_000)).toBe('just now')
+    expect(age(0, 5 * 60_000)).toBe('5m ago')
+    expect(age(0, 3 * 3_600_000)).toBe('3h ago')
   })
 })

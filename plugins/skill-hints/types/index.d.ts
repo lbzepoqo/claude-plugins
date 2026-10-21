@@ -8,6 +8,7 @@ declare module 'claude-code' {
     'skill-hints': {
       skills: SkillEntry[]
       hint: SkillHint | null
+      filter: string
     }
   }
 }

@@ -2,17 +2,45 @@ import type { SkillEntry, SkillHint } from '../types'
 
 export const NO_SKILL = 'none of these'
 
-// Router skills fit almost any open question, so suggesting one tells the person nothing.
-const ROUTER_SKILL = /(^|:)ask-matt$/
-
 // The name without its plugin prefix: `mattpocock-skills:implement` becomes `implement`.
 export function shortName(name: string): string {
   return name.replace(/^[^:]+:/, '')
 }
 
-// The catalog the classifier chooses from: every skill except the routers.
-export function suggestable(catalog: readonly SkillEntry[]): SkillEntry[] {
-  return catalog.filter(skill => !ROUTER_SKILL.test(skill.name))
+// The names in the `hiddenSkills` option, which lists skills by full or short name, comma separated.
+export function hiddenNames(option: unknown): string[] {
+  return typeof option === 'string' ? option.split(',').map(name => name.trim()).filter(Boolean) : []
+}
+
+// The catalog the classifier chooses from: every skill the person has not hidden.
+export function suggestable(catalog: readonly SkillEntry[], hidden: readonly string[] = []): SkillEntry[] {
+  return catalog.filter(skill => !hidden.includes(skill.name) && !hidden.includes(shortName(skill.name)))
+}
+
+// The skills whose name, description or origin holds every word of the filter.
+export function filterSkills(catalog: readonly SkillEntry[], filter: string): SkillEntry[] {
+  const words = filter.toLowerCase().split(/\s+/).filter(Boolean)
+  return catalog.filter(skill => {
+    const haystack = `${skill.name} ${skill.description} ${skill.origin}`.toLowerCase()
+    return words.every(word => haystack.includes(word))
+  })
+}
+
+// The prompt with the skill's command in front. A known command the draft already starts with is
+// replaced; any other leading word, such as a file path, stays.
+export function promptWithSkill(draft: string, name: string, commands: readonly string[]): string {
+  const first = /^\/(\S+)\s*/.exec(draft)
+  const rest = first?.[1] && commands.includes(first[1]) ? draft.slice(first[0].length) : draft
+  return `/${name} ${rest}`
+}
+
+// How long ago a hint was made, in the largest whole unit.
+export function age(at: number, now: number): string {
+  const minutes = Math.floor((now - at) / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.floor(minutes / 60)
+  return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`
 }
 
 // The longest description kept per skill: enough for the classifier and one pane row.
