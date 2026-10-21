@@ -17,6 +17,12 @@ test('frontmatter name and description are read, quoted or not', () => {
   expect(parseNote('/m/b.md', 'No frontmatter here')).toBe(undefined)
 })
 
+test('a description folded or continued over several lines is read whole', () => {
+  expect(parseNote('/m/c.md', '---\nname: c\ndescription: >-\n  Releases ship\n  every Tuesday\nmetadata:\n  type: project\n---\n')?.description).toBe('Releases ship every Tuesday')
+  expect(parseNote('/m/d.md', '---\nname: d\ndescription: |\n  Line one\n  line two\n---\n')?.description).toBe('Line one line two')
+  expect(parseNote('/m/e.md', '---\nname: e\ndescription: "Starts here\n  and goes on"\n---\n')?.description).toBe('Starts here and goes on')
+})
+
 test('words are lowercased, stemmed, and stopwords and numbers dropped', () => {
   expect([...terms('The Releases are shipping in 2026')]).toEqual(['releas', 'shipp'])
   expect([...terms('settings setting')]).toEqual(['sett'])

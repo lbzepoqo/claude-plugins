@@ -36,9 +36,15 @@ export function terms(text: string): Set<string> {
 export function parseNote(path: string, text: string): Note | undefined {
   const block = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1]
   if (block === undefined) return undefined
+  const lines = block.split(/\r?\n/)
+  // A value runs on over the indented lines after its key; a `>` or `|` marker opens such a block.
   const field = (key: string) => {
-    const value = new RegExp(`^${key}:\\s*(.*)$`, 'm').exec(block)?.[1]?.trim() ?? ''
-    return value.replace(/^(["'])(.*)\1$/, '$2')
+    const at = lines.findIndex(line => line.startsWith(`${key}:`))
+    if (at < 0) return ''
+    const first = lines[at]!.slice(key.length + 1).trim()
+    const parts = /^[>|][+-]?\d*$/.test(first) ? [] : [first]
+    for (let i = at + 1; i < lines.length && /^(\s|$)/.test(lines[i]!); i++) parts.push(lines[i]!.trim())
+    return parts.filter(Boolean).join(' ').replace(/^(["'])(.*)\1$/, '$2')
   }
   const name = field('name')
   const description = field('description')
