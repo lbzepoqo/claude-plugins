@@ -13,10 +13,13 @@ const GUARD_PATH = /(?:^|\/)(?:[\w.-]*guard[\w.-]*|git-hooks)\//
 // a guard sees), except documentation.
 const DOCUMENTATION = /\.(?:md|txt)$/
 
-// Changes below this many added plus deleted code lines go unreviewed, unless they touch guard code.
-export const REVIEW_THRESHOLD_LINES = 30
-// From this size code-review's findings cap can crowd out its cleanup angles, so /simplify runs too.
-export const LARGE_CHANGE_LINES = 300
+export interface Limits {
+  // Changes below this many added plus deleted code lines go unreviewed, unless they touch guard code.
+  reviewLines: number
+  // From this size code-review's findings cap can crowd out its cleanup angles, so /simplify runs too.
+  simplifyLines: number
+}
+export const DEFAULT_LIMITS: Limits = { reviewLines: 30, simplifyLines: 300 }
 
 const GIT_COMMIT = new RegExp(String.raw`\bgit\s+(?:-C\s+${PATH}\s+)?commit\b`, 'd')
 const CHANGE_DIRECTORY = new RegExp(String.raw`(?:^|&&|;)\s*cd\s+${PATH}\s*(?:&&|;)`, 'gmd')
@@ -97,13 +100,13 @@ export function madeCommit(reflog: string, startedAt: number): string | undefine
   return undefined
 }
 
-export function needsReview(change: ChangeSize): boolean {
-  return change.files > 0 && (change.lines >= REVIEW_THRESHOLD_LINES || change.guarded)
+export function needsReview(change: ChangeSize, limits: Limits): boolean {
+  return change.files > 0 && (change.lines >= limits.reviewLines || change.guarded)
 }
 
 // code-review at high effort covers the /simplify angles, so /simplify is only asked for large changes.
-export function requiredReviews(change: ChangeSize): ReviewSkill[] {
-  return change.lines >= LARGE_CHANGE_LINES ? ['code-review', 'simplify'] : ['code-review']
+export function requiredReviews(change: ChangeSize, limits: Limits): ReviewSkill[] {
+  return change.lines >= limits.simplifyLines ? ['code-review', 'simplify'] : ['code-review']
 }
 
 function describe(change: ChangeSize): string {
@@ -138,13 +141,13 @@ export interface CommitFacts {
 }
 
 // A reminder after a commit whose changes no required review saw.
-export function commitNudge(commit: CommitFacts, reviews: Reviews): string | undefined {
-  if (isWipSubject(commit.subject) || !needsReview(commit.change)) return undefined
-  const missing = missingReviews(reviews, commit.parentTime, requiredReviews(commit.change))
+export function commitNudge(commit: CommitFacts, reviews: Reviews, limits: Limits = DEFAULT_LIMITS): string | undefined {
+  if (isWipSubject(commit.subject) || !needsReview(commit.change, limits)) return undefined
+  const missing = missingReviews(reviews, commit.parentTime, requiredReviews(commit.change, limits))
   if (missing.length === 0) return undefined
   return (
     `This commit changes ${describe(commit.change)} and ${skillList(missing)} did not run while they ` +
-    `were made (CLAUDE.md, Quality). Run ${missing.length > 1 ? 'them' : 'it'} before reporting the task done ` +
+    `were made. Run ${missing.length > 1 ? 'them' : 'it'} before reporting the task done ` +
     'or pushing, or say in your reply why the review does not apply.'
   )
 }

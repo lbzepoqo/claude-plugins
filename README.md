@@ -26,6 +26,7 @@ These run code inside Claude Code and change how a session behaves: when it comp
 |---|---|---|---|
 | [compact-timing](plugins/compact-timing) | Compacts at task boundaries instead of at a fixed token count | A `mark` tool for the model, a toast when a compaction is skipped or fails | None besides the compaction it triggers |
 | [skill-hints](plugins/skill-hints) | Shows which installed skill fits each prompt you type | Toast, status line, `/skill-hints` pane | One Haiku call per prompt |
+| [quality-nudge](plugins/quality-nudge) | Reminds Claude to run code-review after a commit no review saw (30+ code lines, or any guard code) | A note in the commit's tool result | None |
 | [topic-nudge](plugins/topic-nudge) | Reminds you to `/clear` when a prompt starts a different topic | Toast | One Haiku call per prompt after the first |
 
 ## Install

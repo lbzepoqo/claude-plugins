@@ -1,9 +1,25 @@
 {
   "name": "quality-nudge",
-  "version": "0.3.0",
-  "description": "Reminds Claude to run code-review after a code commit of 30 or more changed lines or any change to guard code, adds /simplify for changes of 300 or more lines",
+  "version": "0.4.0",
+  "description": "Reminds Claude to run code-review after a code commit that no review saw: from 30 changed lines, or any change to guard code; adds /simplify from 300 lines",
   "author": {
     "name": "lbzepoqo",
     "url": "https://github.com/lbzepoqo"
+  },
+  "repository": "https://github.com/lbzepoqo/claude-plugins",
+  "license": "MIT",
+  "userConfig": {
+    "reviewLines": {
+      "type": "number",
+      "title": "Review lines",
+      "description": "Remind to run code-review after a commit with at least this many added plus deleted code lines",
+      "default": 30
+    },
+    "simplifyLines": {
+      "type": "number",
+      "title": "Simplify lines",
+      "description": "Also remind to run /simplify from this many changed code lines",
+      "default": 300
+    }
   }
 }

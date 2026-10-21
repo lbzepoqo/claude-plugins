@@ -3,10 +3,12 @@ import {
   codeChange,
   commitDirectory,
   commitNudge,
+  DEFAULT_LIMITS,
   expandHome,
   madeCommit,
   parseCommitLine,
   reviewSkill,
+  type Limits,
   type Reviews,
 } from './rules'
 
@@ -42,7 +44,16 @@ async function repositoryRoot($: EngineInterface, git: Git, directory: string | 
 // A code commit that no required review saw gets a reminder in the tool
 // result. A hook that fails is skipped by the engine and the call runs
 // unchanged.
-export const register: Register = on => {
+export const limitOption = (value: unknown, fallback: number): number => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+export const register: Register = (on, options) => {
+  const limits: Limits = {
+    reviewLines: limitOption(options.reviewLines, DEFAULT_LIMITS.reviewLines),
+    simplifyLines: limitOption(options.simplifyLines, DEFAULT_LIMITS.simplifyLines),
+  }
   // Per session; a reload starts over, which costs at most one extra reminder.
   const reviews: Reviews = { simplify: 0, 'code-review': 0 }
 
@@ -80,7 +91,7 @@ export const register: Register = on => {
     const commit = parseCommitLine(line)
     if (!commit) return result
     const parentTime = await authorTime(git, root, commit.parent)
-    const text = commitNudge({ subject: commit.subject, change: codeChange(numstat), parentTime }, reviews)
+    const text = commitNudge({ subject: commit.subject, change: codeChange(numstat), parentTime }, reviews, limits)
     if (!text) return result
     return { ...result, context: [...(result.context ?? []), `${$.plugin.name}: ${text}`] }
   })

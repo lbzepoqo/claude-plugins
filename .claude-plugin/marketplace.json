@@ -30,6 +30,11 @@
       "name": "working-method",
       "source": "./plugins/working-method",
       "description": "Skills for how Claude works on a task: hard multi-step tasks, context docs, surviving a usage limit, and git worktrees"
+    },
+    {
+      "name": "quality-nudge",
+      "source": "./plugins/quality-nudge",
+      "description": "Reminds Claude to run code-review after a code commit that no review saw: from 30 changed lines, or any change to guard code; adds /simplify from 300 lines"
     }
   ]
 }

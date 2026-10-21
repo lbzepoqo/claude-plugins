@@ -63,6 +63,13 @@ describe('commitNudge', () => {
     expect(commitNudge({ ...commit, change: { lines: 29, files: 3, guarded: false } }, none)).toBeUndefined()
   })
 
+  test('the line limits come from the options', () => {
+    const limits = { reviewLines: 50, simplifyLines: 100 }
+    expect(commitNudge(commit, none, limits)).toBeUndefined()
+    const sized = { ...commit, change: { lines: 120, files: 3, guarded: false } }
+    expect(commitNudge(sized, none, limits)).toContain('/code-review and /simplify did not run')
+  })
+
   test('a small change to guard code is still reviewed', () => {
     const guard = { ...commit, change: codeChange('2\t1\tmods/secret-guard/hooks/rules.ts\x00') }
     expect(commitNudge(guard, none)).toContain('including guard code')
