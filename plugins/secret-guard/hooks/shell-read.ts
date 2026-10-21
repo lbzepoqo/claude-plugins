@@ -174,6 +174,21 @@ const OPERATOR = /^\d*[<>&|;()]/
 const shellTokens = (segment: string): string[] | undefined =>
   segment.replace(SHELL_TOKEN, '').trim() === '' ? (segment.match(SHELL_TOKEN) ?? []) : undefined
 
+const QUOTED_PART = /'([^']*)'|"((?:[^"\\]|\\[\s\S])*)"/g
+
+// The shell words whose quotes hold whitespace, quotes removed, as one string each: `"User Data/Default/Login Data"` is
+// one path, which pathWords splits. A quoted command (`bash -c "cat 'a b/Login Data'"`) is read again for its own words.
+export const quotedWords = (segment: string): string[] => {
+  const words: string[] = []
+  for (const token of shellTokens(segment) ?? []) {
+    if (!/['"]/.test(token)) continue
+    const word = token.replace(QUOTED_PART, (_, single, double) => single ?? double)
+    if (/\s/.test(word)) words.push(word)
+    for (const [, single, double] of token.matchAll(QUOTED_PART)) words.push(...quotedWords(single ?? double ?? ''))
+  }
+  return words
+}
+
 // The jq options that take values, and how many.
 const JQ_OPTION_VALUES = new Map([['--indent', 1], ['-L', 1], ['--arg', 2], ['--argjson', 2], ['--slurpfile', 2], ['--rawfile', 2]])
 
