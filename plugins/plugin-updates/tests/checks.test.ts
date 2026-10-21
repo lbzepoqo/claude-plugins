@@ -142,4 +142,29 @@ describe('checking against a fake git', () => {
     await Promise.all([mirrors.sync('https://github.com/o/r.git'), mirrors.sync('https://github.com/o/r')])
     expect(calls.filter(args => args[0] === 'clone').length).toBe(1)
   })
+
+  test('commits under an unchanged version are held, not offered as an update', async () => {
+    const versioned = { ...install, version: '1.0.2' }
+    // `manifest` is the upstream plugin.json: a version, 'none' when the file is absent, 'unreadable' when git cannot read it.
+    const upstream = (manifest: string, entryVersion?: string): Git => async args => {
+      if (args[2] === 'rev-parse' && args[3] === '--git-dir') return { exitCode: 0, stdout: '.', stderr: '' }
+      if (args[2] === 'ls-tree') return { exitCode: 0, stdout: manifest === 'none' ? '' : `${args.at(-1)}\n`, stderr: '' }
+      if (args[2] === 'show' && String(args[3]).endsWith('plugin.json')) {
+        return manifest === 'unreadable' ? { exitCode: 128, stdout: '', stderr: 'promisor fetch failed' } : { exitCode: 0, stdout: JSON.stringify({ version: manifest }), stderr: '' }
+      }
+      if (args[2] === 'show') return { exitCode: 0, stdout: JSON.stringify({ plugins: [{ name: 'p', source: './', version: entryVersion }] }), stderr: '' }
+      if (args[2] === 'rev-list') return { exitCode: 0, stdout: '13\n', stderr: '' }
+      if (args[2] === 'log') return { exitCode: 0, stdout: 'abc1234 2026-10-15 Add skill\n', stderr: '' }
+      if (args.includes('rev-parse')) return { exitCode: 0, stdout: `${'c'.repeat(40)}\n`, stderr: '' }
+      return { exitCode: 0, stdout: '', stderr: '' }
+    }
+    const status = async (git: Git) => (await checkPlugin(git, new Mirrors(git, '/c'), versioned, repo)).status
+
+    const held = await checkPlugin(upstream('1.0.2'), new Mirrors(upstream('1.0.2'), '/c'), versioned, repo)
+    expect(held.status).toBe('held')
+    expect(statusText({ checkedAt: 0, findings: [held] })).toBeUndefined()
+    expect(await status(upstream('1.0.3'))).toBe('behind')
+    expect(await status(upstream('none', '1.0.2'))).toBe('held')
+    expect(await status(upstream('unreadable', '1.0.2'))).toBe('behind')
+  })
 })

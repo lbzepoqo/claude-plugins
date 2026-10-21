@@ -4,8 +4,9 @@ export type Git = (args: readonly string[]) => Promise<RunResult>
 export type Finding = {
   name: string
   kind: 'plugin' | 'skill'
-  // 'behind': `behind` commits (or a version change) are missing; 'unchecked': `reason` says why.
-  status: 'current' | 'behind' | 'unchecked'
+  // 'behind': `behind` commits (or a version change) are missing; 'held': commits are missing but the plugin's
+  // version string is unchanged, so `claude plugin update` keeps the installed copy; 'unchecked': `reason` says why.
+  status: 'current' | 'behind' | 'held' | 'unchecked'
   behind: number
   commits: string[]
   action?: string
@@ -235,6 +236,34 @@ export function compareVersions(a: string, b: string): number {
   return 0
 }
 
+// The version Claude Code computes for a plugin: the manifest's `version`, else the marketplace entry's. Undefined when
+// neither is set, null when the manifest exists but could not be read.
+async function upstreamVersion(git: Git, dir: string, commit: string, path: string, entry: ListingEntry): Promise<string | undefined | null> {
+  const file = `${path ? `${path}/` : ''}.claude-plugin/plugin.json`
+  const listed = await git(['-C', dir, 'ls-tree', '--name-only', commit, '--', file])
+  if (listed.exitCode !== 0) return null
+  let version: unknown
+  if (listed.stdout.trim()) {
+    const manifest = await readAt(git, dir, commit, file)
+    if (manifest === undefined) return null
+    try {
+      version = (JSON.parse(manifest) as { version?: unknown }).version
+    } catch {
+      return null
+    }
+  }
+  if (typeof version === 'string' && version) return version
+  return entry.version || undefined
+}
+
+// Claude Code replaces an installed copy only when the computed version changes, so commits under an unchanged version are held.
+async function comparePlugin(git: Git, dir: string, install: Install & { sha: string }, target: string, path: string, entry: ListingEntry, base: Finding): Promise<Finding> {
+  const result = await compare(git, dir, install.sha, target, path ? [path] : [], base)
+  if (result.status !== 'behind' || !install.version) return result
+  if ((await upstreamVersion(git, dir, target, path, entry)) !== install.version) return result
+  return { ...result, status: 'held', reason: `version ${install.version} unchanged` }
+}
+
 export async function checkPlugin(git: Git, mirrors: Mirrors, install: Install, repo: MarketplaceRepo | string | undefined): Promise<Finding> {
   const label = install.where ? `${install.key} (${install.where})` : install.key
   const base = finding(label, 'plugin', { action: `claude plugin update ${install.key}` })
@@ -249,16 +278,19 @@ export async function checkPlugin(git: Git, mirrors: Mirrors, install: Install, 
 
   // A plugin installed without a commit (one inside a marketplace that is not a git checkout) is compared by version.
   if (!install.sha) {
-    if (!entry.version || !install.version) return { ...base, reason: 'no installed commit or version to compare' }
-    return compareVersions(install.version, entry.version) >= 0
+    const path = typeof entry.source === 'string' ? pluginPath(entry.source, listing) : undefined
+    const version = path === undefined ? entry.version : await upstreamVersion(git, dir, tip, path, entry)
+    if (version === null) return { ...base, reason: 'upstream plugin.json could not be read' }
+    if (!version || !install.version) return { ...base, reason: 'no installed commit or version to compare' }
+    return compareVersions(install.version, version) >= 0
       ? { ...base, status: 'current' }
-      : { ...base, status: 'behind', upstream: `version ${install.version} → ${entry.version}`, tip: entry.version }
+      : { ...base, status: 'behind', upstream: `version ${install.version} → ${version}`, tip: version }
   }
 
   if (typeof entry.source === 'string') {
     const path = pluginPath(entry.source, listing)
     if (path === undefined) return { ...base, reason: `unsupported source path "${entry.source}"` }
-    return compare(git, dir, install.sha, tip, path ? [path] : [], base)
+    return comparePlugin(git, dir, { ...install, sha: install.sha }, tip, path, entry, base)
   }
 
   const source = entry.source
@@ -278,7 +310,7 @@ export async function checkPlugin(git: Git, mirrors: Mirrors, install: Install, 
   if (!pluginDir) return { ...base, reason: `could not fetch ${url}` }
   const target = await resolveCommit(git, pluginDir, pinned ?? ref)
   if (!target) return { ...base, reason: `upstream ${pinned ?? ref} not found` }
-  return compare(git, pluginDir, install.sha, target, path ? [path] : [], base)
+  return comparePlugin(git, pluginDir, { ...install, sha: install.sha }, target, path, entry, base)
 }
 
 export async function checkSkill(git: Git, mirrors: Mirrors, skill: CopiedSkill): Promise<Finding> {
@@ -326,17 +358,25 @@ export function toastText(report: Report): string {
   return `Updates available: ${names.join(', ')}${behind.length > 3 ? ` and ${behind.length - 3} more` : ''}. /plugin-updates lists them.`
 }
 
+function commitLines(item: Finding): string[] {
+  const lines = item.commits.map(commit => `  ${commit}`)
+  if (item.behind > item.commits.length) lines.push(`  … ${item.behind - item.commits.length} older`)
+  return lines
+}
+
 export function reportText(report: Report): string {
   const lines: string[] = []
   const behind = pending(report)
   const unchecked = report.findings.filter(item => item.status === 'unchecked')
   const current = report.findings.filter(item => item.status === 'current')
-  lines.push(`${behind.length} behind, ${current.length} current, ${unchecked.length} not checked.`)
+  const held = report.findings.filter(item => item.status === 'held')
+  lines.push(`${behind.length} behind, ${held.length ? `${held.length} held, ` : ''}${current.length} current, ${unchecked.length} not checked.`)
   for (const item of behind) {
-    lines.push('', `${item.kind === 'skill' ? 'Skill' : 'Plugin'} ${item.name}: ${amount(item)} behind`)
-    for (const commit of item.commits) lines.push(`  ${commit}`)
-    if (item.behind > item.commits.length) lines.push(`  … ${item.behind - item.commits.length} older`)
+    lines.push('', `${item.kind === 'skill' ? 'Skill' : 'Plugin'} ${item.name}: ${amount(item)} behind`, ...commitLines(item))
     if (item.action) lines.push(`  → ${item.action}`)
+  }
+  for (const item of held) {
+    lines.push('', `Plugin ${item.name}: ${amount(item)} upstream, held until the author bumps the version (${item.reason})`, ...commitLines(item))
   }
   if (unchecked.length > 0) {
     lines.push('', 'Not checked:')
