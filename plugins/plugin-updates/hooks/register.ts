@@ -23,8 +23,9 @@ const GIT_TIMEOUT = 5 * 60 * 1000
 type Stored = Report & { inputs: string }
 
 async function paths($: EngineInterface) {
-  const home = await $.env.get('HOME')
-  if (!home) throw new Error('HOME is not set')
+  // The order of Node's os.homedir(): USERPROFILE exists only on Windows, where HOME is usually unset.
+  const home = (await $.env.get('USERPROFILE')) || (await $.env.get('HOME'))
+  if (!home) throw new Error('Neither USERPROFILE nor HOME is set')
   const configDir = (await $.env.get('CLAUDE_CONFIG_DIR')) || `${home}/.claude`
   return { configDir, cacheRoot: `${home}/.cache/plugin-updates` }
 }

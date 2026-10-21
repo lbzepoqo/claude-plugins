@@ -1,6 +1,6 @@
 {
   "name": "plugin-updates",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Tells you when installed plugins or copied skills are behind upstream, without updating them: a status line, one toast per news, and a /plugin-updates list of the missing commits",
   "author": {
     "name": "lbzepoqo",
