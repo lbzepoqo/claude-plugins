@@ -2,16 +2,23 @@
 // pass through. Output scrubbing is the net for those.
 // A name right before `(` is a function call (`mock.env(on)`), not a file. Quoted text stays one segment, so `grep "(export )?"` is not
 // read as `export`; `$(` and backticks still run a command inside double quotes, so they split there too.
-export const commandSegments = (command: string): string[] => {
+export const commandSegments = (command: string): string[] => commandPipelines(command).flat()
+
+// The same segments, grouped by the pipelines they form: `env | cut -d= -f1; ls` is [['env', 'cut -d= -f1'], ['ls']].
+export const commandPipelines = (command: string): string[][] => {
   const text = command.replace(/[\w.-]+\(/g, '(')
-  const parts: string[] = []
+  const pipelines: string[][] = []
+  let pipeline: string[] = []
   const resumeQuotes: ('"' | null)[] = []
   let current = ''
   let quote: '"' | "'" | "$'" | null = null
   let isBacktickInQuote = false
-  const endSegment = () => {
-    parts.push(current)
+  const endSegment = (isPiped = false) => {
+    pipeline.push(current)
     current = ''
+    if (isPiped) return
+    pipelines.push(pipeline)
+    pipeline = []
   }
   for (let index = 0; index < text.length; index++) {
     const char = text[index] ?? ''
@@ -78,13 +85,15 @@ export const commandSegments = (command: string): string[] => {
       if (isBacktickInQuote) quote = '"'
       isBacktickInQuote = false
     } else if (';|\n'.includes(char)) {
-      endSegment()
+      endSegment(char === '|')
     } else {
       current += char
     }
   }
   endSegment()
-  return parts.map(part => part.trim().replace(/^(sudo|command|exec|time|nohup)\s+/, '')).filter(Boolean)
+  return pipelines
+    .map(stages => stages.map(part => part.trim().replace(/^(sudo|command|exec|time|nohup)\s+/, '')).filter(Boolean))
+    .filter(stages => stages.length > 0)
 }
 
 // `cat` or `tee` writing a heredoc out is data, but only with a quoted delimiter: in a `<<EOF` body `$(…)` and backticks still run.
@@ -109,7 +118,24 @@ const isGrouped = (text: string) => (text.match(/[({]/g)?.length ?? 0) > (text.m
 // output of `cat` can go to bash (`{ cat <<'EOF' … } | bash`), so a body there is not data. With `dropScripts`, script bodies that
 // start no process go too. Both views read the lines the same way and differ only in what is returned.
 export const withoutDataHeredocs = (command: string, { dropScripts = false } = {}): string => {
+  const { kept, scriptLines } = readHeredocs(command)
+  return kept.filter((_, index) => !dropScripts || !scriptLines.has(index)).join('\n')
+}
+
+const STRING_LITERAL = /(['"`])((?:(?!\1)[^\\\n]|\\.)*)\1/g
+
+// The string literals on the script lines that withoutDataHeredocs drops. A script names the files it opens in strings, so
+// these are what is left to check once its code is no longer read as shell.
+export const scriptLiterals = (command: string): string[] => {
+  const { raw, scriptLines } = readHeredocs(command)
+  return [...scriptLines].flatMap(index => [...(raw[index] ?? '').matchAll(STRING_LITERAL)].map(match => match[2] ?? ''))
+}
+
+// The command's lines without data heredoc bodies: `kept` with the quotes in other bodies blanked, `raw` as written, and the
+// indexes of the script body lines that start no process.
+const readHeredocs = (command: string) => {
   const kept: string[] = []
+  const raw: string[] = []
   const scriptLines = new Set<number>()
   let endings: string[] = []
   let isDataBody = false
@@ -125,6 +151,7 @@ export const withoutDataHeredocs = (command: string, { dropScripts = false } = {
       // A body is not read with shell quotes: in `<<EOF` they are plain text around a running `$(…)`, and python's `'''it's'''`
       // is an odd count. So quotes and `#` there must not hide what follows.
       kept.push(line.replace(/['"#]/g, ' '))
+      raw.push(line)
       continue
     }
     // After a trailing `\` the line continues the one before it, so its heredoc can belong to another command.
@@ -134,9 +161,10 @@ export const withoutDataHeredocs = (command: string, { dropScripts = false } = {
     isDataBody = opener !== null
     endings = opener ? [opener[2] ?? ''] : script ? [script[2] ?? ''] : [...line.matchAll(HEREDOC)].map(match => match[2] ?? '')
     kept.push(line)
+    raw.push(line)
     scriptStart = script ? kept.length : -1
   }
-  return kept.filter((_, index) => !dropScripts || !scriptLines.has(index)).join('\n')
+  return { kept, raw, scriptLines }
 }
 
 // Splits a segment into the words the path check reads. Whitespace, `<`, `>` and `=` split even inside quotes,
@@ -175,6 +203,18 @@ const shellTokens = (segment: string): string[] | undefined =>
   segment.replace(SHELL_TOKEN, '').trim() === '' ? (segment.match(SHELL_TOKEN) ?? []) : undefined
 
 const QUOTED_PART = /'([^']*)'|"((?:[^"\\]|\\[\s\S])*)"/g
+
+// Whether a segment sends output to a file. `/dev/null` and a copy to another output (`2>&1`) do not count, and a quote left
+// open does, since it can hide one.
+export const writesFile = (segment: string): boolean => {
+  const tokens = shellTokens(segment)
+  if (!tokens) return true
+  return tokens.some((token, index) => OPERATOR.test(token) && token.includes('>') && !token.endsWith('&') && tokens[index + 1] !== '/dev/null')
+}
+
+// The shell words of a segment with their quotes removed; undefined when a quote is left open.
+export const shellWords = (segment: string): string[] | undefined =>
+  shellTokens(segment)?.map(token => token.replace(QUOTED_PART, (_, single, double) => single ?? double))
 
 // The shell words whose quotes hold whitespace, quotes removed, as one string each: `"User Data/Default/Login Data"` is
 // one path, which pathWords splits. A quoted command (`bash -c "cat 'a b/Login Data'"`) is read again for its own words.

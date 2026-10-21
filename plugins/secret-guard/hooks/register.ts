@@ -1,5 +1,5 @@
 import type { EngineInterface, Register } from 'claude-code'
-import { commandSegments, pathWords, quotedWords, withoutDataHeredocs, withoutJqFilter } from './shell-read'
+import { commandPipelines, pathWords, quotedWords, scriptLiterals, shellWords, withoutDataHeredocs, withoutJqFilter, writesFile } from './shell-read'
 
 // Derived from gitleaks' default rules, loosened where key formats change.
 const SECRET_RULES: readonly [string, RegExp][] = [
@@ -100,7 +100,8 @@ const SENSITIVE_PATHS: readonly RegExp[] = [
   /\/library\/keychains\//, ...SPACED_PATHS,
   /\.kdbx$/, /\/(\.password-store|\.config\/1password|\.lastpass|\.bitwarden)(\/|$)/,
   /\/(library\/containers\/com\.bitwarden\.desktop|\.var\/app\/com\.bitwarden\.desktop)(\/|$)/,
-  /\/proc\/[^/]+\/environ$/, /\/run\/secrets\//, /\/etc\/shadow$/, /\/etc\/ssh\/ssh_host_[^/]+_key$/,
+  // Any `environ`: in `/proc/$(pgrep x)/environ` the `$(` splits the path, leaving `/environ`.
+  /\/environ$/, /\/run\/secrets\//, /\/etc\/shadow$/, /\/etc\/ssh\/ssh_host_[^/]+_key$/,
 ]
 
 export const sensitivePath = (path: string, home: string, rules = SENSITIVE_PATHS): boolean => {
@@ -122,7 +123,8 @@ const SECRET_COMMANDS: readonly RegExp[] = [
   /^gcloud auth (application-default )?print-(access|identity)-token\b/,
   /^az account get-access-token\b/,
   /^kubectl (config view .*--raw|get secrets?\b)/,
-  /^git (credential fill|config .*--get.*credential)/,
+  // credential.helper names the helper program, not a secret.
+  /^git (credential fill|config .*--get.*credential(?!\.helper\b))/,
   /^(op read|vault (read|kv get)|doppler secrets|heroku auth:token)\b/,
   // Global options can come before the subcommand (`bw --session x list items`), so the words are looked for anywhere.
   // A session key is as good as the vault, so the commands that print one are refused too.
@@ -149,28 +151,103 @@ export const commandHead = (segment: string): string => {
   return head.replace(/^(?:(?:npx|bunx|pnpm dlx)(?: -y)? @bitwarden\/cli|\S*\/(?=\S))/, match => (match.includes('@bitwarden') ? 'bw' : ''))
 }
 
-const NON_READING = new Set(['ls', 'stat', 'test', '[', 'touch', 'chmod', 'chown', 'rm'])
+// ssh-keygen never prints a private key.
+const NON_READING = new Set(['ls', 'stat', 'test', '[', 'touch', 'chmod', 'chown', 'rm', 'ssh-keygen'])
+const LISTS_ENVIRONMENT = /^(printenv|env|set|export|export -p|declare -p|declare -x|compgen -v)$/
+// ssh and scp read the key file given with -i or IdentityFile, and print none of it.
+const SSH_CLIENTS = new Set(['ssh', 'scp', 'sftp'])
+const isKeyOption = (word: string | undefined) => word === '-i' || word === 'IdentityFile'
+// The text of a message, title or body names files without reading them. Only these commands take one, and in git only -m
+// does: `git commit -t` reads a template file, and `git show -m` takes no value.
+const GIT_PROSE = /^git (?:commit|tag|merge|notes(?: \S+)?|stash(?: push| save)?)\b/
+const GH_PROSE = /^gh (?:issue|pr|release) (?:create|comment|edit|review|close)\b/
+const QUOTED_TEXT = String.raw`(?:"(?:[^"\\$\x60]|\\.)*"|'[^']*')`
+const GIT_PROSE_OPTION = new RegExp(String.raw`(?<=\s(?:-m|--message)[\s=])${QUOTED_TEXT}`, 'g')
+const GH_PROSE_OPTION = new RegExp(String.raw`(?<=\s(?:-b|-t|--body|--title|--notes)[\s=])${QUOTED_TEXT}`, 'g')
+const withoutProse = (segment: string, head: string) =>
+  GIT_PROSE.test(head) ? segment.replace(GIT_PROSE_OPTION, '""') : GH_PROSE.test(head) ? segment.replace(GH_PROSE_OPTION, '""') : segment
+
+// A grep's options and patterns as GNU grep reads them: options may follow the pattern, and `--` ends them. A pattern file
+// counts as a pattern that matches anything.
+const grepParts = (words: string[]) => {
+  const options: string[] = []
+  const patterns: string[] = []
+  const operands: string[] = []
+  let isOptionsEnd = false
+  for (let index = 1; index < words.length; index++) {
+    const word = words[index] ?? ''
+    if (!isOptionsEnd && word === '--') isOptionsEnd = true
+    else if (!isOptionsEnd && ['-e', '--regexp', '-f', '--file'].includes(word)) patterns.push(/f/.test(word) ? '' : (words[++index] ?? ''))
+    else if (!isOptionsEnd && word.length > 1 && word.startsWith('-')) options.push(word)
+    else operands.push(word)
+  }
+  return { options, patterns: patterns.length > 0 ? patterns : operands.slice(0, 1) }
+}
+
+// A pipeline from a listing or a credential file read prints no value when it ends in a count, or when it cuts values off
+// at `=` after a grep anchored at the line start kept only `NAME=` lines: a value that runs over several lines continues on
+// lines without an `=`, which the cut would print whole. Only stages that pass whole lines may come between, and nothing
+// may go to a file.
+const COUNT_OPTIONS = /^(?:-[a-zA-Z]*[cqlL]|--(?:count|quiet|silent|files-with(?:out)?-match(?:es)?)$)/
+const counts = (words: string[]) => words[0] === 'wc' || (words[0] === 'grep' && grepParts(words).options.some(option => COUNT_OPTIONS.test(option)))
+const keepsLines = (words: string[]) => {
+  const options = words.slice(1).filter(word => word.startsWith('-'))
+  if (words[0] === 'grep') return !grepParts(words).options.some(option => /^-[a-zA-Z]*o|^--only/.test(option))
+  if (words[0] === 'sort') return !options.some(option => /^-[a-zA-Z]*o|^--output/.test(option))
+  if (words[0] === 'head' || words[0] === 'tail') return !options.some(option => /^-[a-zA-Z]*c|^--bytes/.test(option))
+  return words[0] === 'uniq' || words[0] === 'wc'
+}
+const anchoredGrep = (words: string[]) => {
+  if (words[0] !== 'grep') return false
+  const { options, patterns } = grepParts(words)
+  // -F reads `^` literally; context, inverted and other options can pass lines the pattern did not match.
+  return options.every(option => /^-[EiwP]+$|^--(?:ignore-case|extended-regexp)$/.test(option)) && patterns.length > 0 &&
+    patterns.every(pattern => pattern.startsWith('^') && !pattern.replace(/\\?\([^()]*\\?\)/g, '').includes('|'))
+}
+// In sed's replacement `&` and `\0` put the match back, so neither may appear there.
+const DROPS_VALUES = /^(?:cut (?!.*--complement)(?=.*-d ?(['"]?)=\1(?: |$))(?=.*-f ?1(?: |$))|sed (?:-[Er] )?(['"]?)s([/#|])=\.\*\$?\3[^'"\s&\\]*\3g?\2$)/
+const printsNoValue = (stages: string[]) => {
+  if (stages.some(writesFile)) return false
+  const heads = stages.map(commandHead)
+  const words = heads.map(head => shellWords(head) ?? [])
+  const drop = heads.findIndex((head, index) => index > 0 && DROPS_VALUES.test(head))
+  if (!words.every((stageWords, index) => index === 0 || index === drop || keepsLines(stageWords))) return false
+  return counts(words.at(-1) ?? []) || (drop > 0 && words.slice(0, drop).some(anchoredGrep))
+}
+// The commands that only print a file, so the pipeline after them is all that decides what shows.
+const PLAIN_READERS = new Set(['cat', 'grep', 'head', 'tail'])
 
 export const secretCommand = (command: string, home: string): string | undefined => {
   // A script that prints the whole environment is printenv by another name.
-  const runnable = withoutDataHeredocs(command)
-  if (/\b(console\.log|print|JSON\.stringify|json\.dumps)\(\s*(process\.env|os\.environ)\s*\)/.test(runnable)) return 'printing the whole environment prints secrets'
-  // A command name in a script body is text; the files the script opens are still checked.
-  const shellSegments = command.includes('<<') ? new Set(commandSegments(withoutDataHeredocs(command, { dropScripts: true }))) : undefined
-  for (const seg of commandSegments(runnable)) {
-    const head = commandHead(seg)
-    if ((shellSegments?.has(seg) ?? true) && SECRET_COMMANDS.some(r => r.test(head))) return `\`${head.split(' ').slice(0, 3).join(' ')}\` prints secrets`
-    const words = pathWords(withoutJqFilter(seg))
-    const cmd = words[0] ?? ''
-    if (NON_READING.has(cmd)) continue
-    // cp and mv read only their sources: a credential file as the target is setup, as the source it could be copied out and read.
-    const checked = cmd === 'cp' || cmd === 'mv' ? words.slice(1, -1) : words
-    const token = checked.find(w => sensitivePath(withoutTrailingPunctuation(w), home))
-    if (token) return `${token} is a credential file`
-    // A quoted sentence ends like many paths (`-m "~/.ssh/config: add a host"`), so a whole quoted word is held only to
-    // the rules for paths with spaces, the ones that need it.
-    const quotedPath = quotedWords(seg).find(word => sensitivePath(word, home, SPACED_PATHS))
-    if (quotedPath) return `${quotedPath} is a credential file`
+  if (/\b(console\.log|print|JSON\.stringify|json\.dumps)\(\s*(process\.env|os\.environ)\s*\)/.test(withoutDataHeredocs(command)))
+    return 'printing the whole environment prints secrets'
+  // A python or node script that starts no process is not shell, so only the files it names in strings are checked.
+  const literal = scriptLiterals(command).find(word => sensitivePath(word, home, /\s/.test(word) ? SPACED_PATHS : SENSITIVE_PATHS))
+  if (literal) return `${literal} is a credential file`
+  for (const pipeline of commandPipelines(withoutDataHeredocs(command, { dropScripts: true }))) {
+    for (const [index, segment] of pipeline.entries()) {
+      const head = commandHead(segment)
+      const isNameOnly = () => printsNoValue(pipeline.slice(index))
+      if (SECRET_COMMANDS.some(rule => rule.test(head)) && !(LISTS_ENVIRONMENT.test(head) && isNameOnly()))
+        return `\`${head.split(' ').slice(0, 3).join(' ')}\` prints secrets`
+      const reads = withoutProse(segment, head)
+      const words = pathWords(withoutJqFilter(reads))
+      const cmd = words[0] ?? ''
+      if (NON_READING.has(cmd)) continue
+      // cp and mv read only their sources: a credential file as the target is setup, as the source it could be copied out and read.
+      const sources = cmd === 'cp' || cmd === 'mv' ? words.slice(1, -1) : words
+      // A word with `|` is a search pattern's alternation (`grep -E 'a|process.env'`) or quoted shell text, so each part is checked.
+      // A part that starts with a backslash is a pattern's escape (`'\\.env|env'`), not a UNC path.
+      const checked = sources
+        .filter((word, wordIndex) => !(SSH_CLIENTS.has(cmd) && (isKeyOption(sources[wordIndex - 1]) || /^-i./.test(word))))
+        .flatMap(word => (word.includes('|') ? word.split('|').filter(part => !part.startsWith('\\')) : [word]))
+      const token = checked.find(word => sensitivePath(withoutTrailingPunctuation(word), home))
+      if (token && !(PLAIN_READERS.has(cmd) && isNameOnly())) return `${token} is a credential file`
+      // A quoted sentence ends like many paths (`-m "~/.ssh/config: add a host"`), so a whole quoted word is held only to
+      // the rules for paths with spaces, the ones that need it.
+      const quotedPath = quotedWords(reads).find(word => sensitivePath(word, home, SPACED_PATHS))
+      if (quotedPath) return `${quotedPath} is a credential file`
+    }
   }
   return undefined
 }
