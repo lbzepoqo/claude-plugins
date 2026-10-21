@@ -1,6 +1,6 @@
 {
   "name": "memory-hints",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Points Claude to the saved auto-memory notes that match each prompt you type, so a note is read before the work it applies to instead of sitting unread behind its index line",
   "author": {
     "name": "lbzepoqo",

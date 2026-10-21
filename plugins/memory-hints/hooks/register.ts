@@ -41,7 +41,9 @@ async function notesIn($: EngineInterface, dir: string, cache: NoteCache): Promi
     if (mtimeMs < 0) return undefined
     let cached = cache.get(path)
     if (cached === undefined || cached.mtimeMs !== mtimeMs) {
-      const note = parseNote(path, await $.fs.read(path))
+      // An unreadable note is skipped until it changes, so it does not hide the others.
+      const text = await $.fs.read(path).catch(() => undefined)
+      const note = text === undefined ? undefined : parseNote(path, text)
       cached = { mtimeMs, entry: note && indexNote(note) }
       cache.set(path, cached)
     }
@@ -66,12 +68,17 @@ export const register: Register = (on, options) => {
         misses++
         return next(e)
       }
-      const seen = await read($, hinted)
       // Matched against every note, so a word's rarity does not change as notes are hinted.
       const notes = await notesIn($, dir, cache)
-      const hits = match(e.text, notes, { minScore, minTerms: MIN_TERMS, limit: notes.length }).filter(hit => !seen.includes(hit.note.path)).slice(0, LIMIT)
+      const candidates = match(e.text, notes, { minScore, minTerms: MIN_TERMS, limit: notes.length })
+      if (candidates.length === 0) return next(e)
+      // Picked inside the update, so two prompts in flight never hint the same note.
+      let hits: typeof candidates = []
+      await update($, hinted, previous => {
+        hits = candidates.filter(hit => !previous.includes(hit.note.path)).slice(0, LIMIT)
+        return [...previous, ...hits.map(hit => hit.note.path)]
+      })
       if (hits.length === 0) return next(e)
-      await update($, hinted, previous => [...previous, ...hits.map(hit => hit.note.path)])
       return next({ ...e, context: [...(e.context ?? []), hintText(hits)] })
     } catch (error) {
       // A folder that moved is looked up again on the next prompt.
