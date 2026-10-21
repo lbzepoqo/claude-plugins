@@ -1,0 +1,20 @@
+{
+  "name": "memory-hints",
+  "version": "0.1.0",
+  "description": "Points Claude to the saved auto-memory notes that match each prompt you type, so a note is read before the work it applies to instead of sitting unread behind its index line",
+  "author": {
+    "name": "lbzepoqo",
+    "url": "https://github.com/lbzepoqo"
+  },
+  "repository": "https://github.com/lbzepoqo/claude-plugins",
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "minScore": {
+      "type": "number",
+      "title": "Minimum score",
+      "description": "How strongly a note must match a prompt to be hinted: the sum of its shared words' rarity among the notes. Higher means fewer, surer hints",
+      "default": 8
+    }
+  }
+}

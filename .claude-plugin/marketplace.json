@@ -22,6 +22,11 @@
       "description": "Shows a toast when a prompt starts a different topic than the earlier requests in the session, so you can /clear first"
     },
     {
+      "name": "memory-hints",
+      "source": "./plugins/memory-hints",
+      "description": "Points Claude to the saved auto-memory notes that match each prompt you type, so a note is read before the work it applies to instead of sitting unread behind its index line"
+    },
+    {
       "name": "grounded",
       "source": "./plugins/grounded",
       "description": "Output style: answer first, keep every figure, do the work you can do, and say what was checked"
