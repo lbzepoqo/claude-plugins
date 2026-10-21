@@ -2,7 +2,9 @@
 
 Keeps secrets out of the conversation. API keys and private keys are hidden before Claude reads them, credential files cannot be opened, and commands that print secrets do not run.
 
-![secret-guard's status light](../docs/secret-guard.png)
+This is a fork of secret-guard from [arasovic/claude-code-mods](https://github.com/arasovic/claude-code-mods) by Mehmet Aras, MIT licensed (see LICENSE). It adds fewer false refusals on quoted search patterns and jq filters, keeps values of placeholder-named variables visible, and refuses any tool call that would write a hidden-value tag back to disk.
+
+![secret-guard's status light](secret-guard.png)
 
 ## What it does
 
@@ -47,8 +49,8 @@ Set `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` in the `env` block of `~/.claude/settin
 ## Install
 
 ```sh
-claude plugin marketplace add arasovic/claude-code-mods
-claude plugin install secret-guard@claude-code-mods
+claude plugin marketplace add lbzepoqo/claude-plugins
+claude plugin install secret-guard@lbzepoqo
 ```
 
 Restart Claude Code. The status light appears under the prompt.
@@ -58,5 +60,4 @@ Restart Claude Code. The status light appears under the prompt.
 ```sh
 claude plugin validate .
 claude plugin test .
-../typecheck.sh secret-guard
 ```
