@@ -3,7 +3,7 @@ import { expect, mock, test } from 'claude-code/testing'
 
 // A repository whose HEAD moves on each Bash call that commits, reported in the result's gitOperation as
 // the Bash tool does. Commit cN was authored at N * 100 seconds.
-function fakeRepository(on: On, { reviewFails = false } = {}) {
+function fakeRepository(on: On, { reviewFails = false, reflogOff = false } = {}) {
   let commitCount = 0
   const reflog: string[] = []
   const answer = (stdout: string, exitCode = 0) => ({
@@ -15,11 +15,17 @@ function fakeRepository(on: On, { reviewFails = false } = {}) {
     const args = e.argv.slice(3).filter(arg => arg !== '--')
     const last = args[args.length - 1] ?? ''
     const head = `c${commitCount}`
+    if (args[0] === 'rev-parse' && args[1] === '--verify') return commitCount === 0 ? answer('', 1) : answer(head)
     if (args[0] === 'rev-parse') return answer(e.init?.cwd ?? '/repo')
     // A pulled commit (uN) adds no code of its own.
     if (args[0] === 'diff-tree' && last.startsWith('u')) return answer('')
     if (args[0] === 'diff-tree') return answer('20\t5\tsrc/a.ts\x0010\t0\tsrc/b.ts\x003\t1\tREADME.md\x00')
-    if (args.includes('-g')) return answer(reflog.join('\n'))
+    if (args[0] === 'rev-list') return reflogOff || reflog.length === 0 ? answer('', 128) : answer(String(reflog.length))
+    if (args.includes('-g')) {
+      const count = Number(args[args.indexOf('-n') + 1])
+      return answer(reflogOff ? '' : reflog.slice(0, count).join('\n'))
+    }
+    if (args.includes('--format=%P')) return answer(last === 'c1' ? '' : `c${Number(last.slice(1)) - 1}`)
     if (args.includes('--format=%at')) {
       const revision = last === 'HEAD' ? head : last
       return answer(String(Number(revision.slice(1)) * 100))
@@ -33,12 +39,12 @@ function fakeRepository(on: On, { reviewFails = false } = {}) {
       : { result: { success: true, commandName: e.skill, status: 'inline' as const } },
   )
   on('tool.call', { tool: 'Bash' }, (_$, e) => {
-    const commits = /git (-C \S+ )?commit/.test(e.command)
+    const commits = /git (-C \S+ )?commit/.test(e.command) && !/--dry-run/.test(e.command)
     if (commits) {
       commitCount++
-      reflog.unshift(`c${commitCount}\tHEAD@{1000}\tcommit: feat: commit ${commitCount}`)
+      reflog.unshift(`c${commitCount}\tcommit: feat: commit ${commitCount}`)
     }
-    if (/git pull/.test(e.command)) reflog.unshift('u9\tHEAD@{1000}\tpull: Fast-forward')
+    if (/git pull/.test(e.command)) reflog.unshift('u9\tpull: Fast-forward')
     // `git commit -q` prints nothing, so the engine does not report it.
     const gitOperation = commits && !/ -q/.test(e.command) ? { commit: { sha: `c${commitCount}`, kind: 'committed' as const } } : {}
     return { result: { stdout: '', stderr: '', interrupted: false, gitOperation } }
@@ -66,6 +72,15 @@ test('sees a quiet commit by the HEAD it moved', async ($, on) => {
   fakeRepository(on)
   const quiet = await $.tool.call({ tool: 'Bash', command: 'git commit -qm "feat: commit 1"' })
   expect(quiet.context?.[0]).toContain('This commit changes 35 lines in 2 code files')
+})
+
+test('sees a quiet commit by the HEAD it moved when the reflog is off', async ($, on) => {
+  mock.clock(on, { now: 1_000_000 })
+  fakeRepository(on, { reflogOff: true })
+  const quiet = await $.tool.call({ tool: 'Bash', command: 'git commit -qm "feat: commit 1"' })
+  expect(quiet.context?.[0]).toContain('This commit changes 35 lines in 2 code files')
+  const nothing = await $.tool.call({ tool: 'Bash', command: 'git commit --dry-run -qm "feat: commit 2"' })
+  expect(nothing.context).toBeUndefined()
 })
 
 test('finds a quiet commit followed by a pull in the same command', async ($, on) => {

@@ -26,7 +26,7 @@ const CHANGE_DIRECTORY = new RegExp(String.raw`(?:^|&&|;)\s*cd\s+${PATH}\s*(?:&&
 
 // Where a git commit in the command runs: the -C path, the last `cd <dir>` before it, or the session's
 // working directory (null). undefined when the command has no git commit. A match inside quoted text only
-// costs a reflog read, since no new commit is found there.
+// costs the git reads around the call, since no new commit is found there.
 export function commitDirectory(command: string): string | null | undefined {
   const call = GIT_COMMIT.exec(command)
   if (!call) return undefined
@@ -82,18 +82,16 @@ export function codeChange(numstatOutput: string): ChangeSize {
   return { lines, files: paths.size, guarded }
 }
 
-// The newest commit made by `git commit` since startedAt (ms), from `git log -g --date=unix
-// --format=%H%x09%gd%x09%gs` output: reflog entries newest first, each the sha, `HEAD@{<seconds>}` and the
-// reflog subject. A pull, reset or checkout moves HEAD under another subject and is passed over. An amend
-// counts only on top of a commit made in the same call, and then it is the one measured; amending an older
-// commit is not a new change set.
-export function madeCommit(reflog: string, startedAt: number): string | undefined {
+// The newest commit made by `git commit` during a call, from `git log -g --format=%H%x09%gs` output: reflog
+// entries newest first, each the sha and the reflog subject. The call's entries are the `added` newest ones,
+// counted against the reflog's length before the call; reflog times are not used, since they are the
+// committer date, which an environment variable can set. A pull, reset or checkout moves HEAD under another
+// subject and is passed over. An amend counts only on top of a commit made in the same call, and then it is
+// the one measured; amending an older commit is not a new change set.
+export function madeCommit(reflog: string, added: number): string | undefined {
   let amended: string | undefined
-  for (const line of reflog.split('\n')) {
-    const [sha = '', selector = ''] = line.split('\t', 2)
-    const seconds = Number(/\{(\d+)\}/.exec(selector)?.[1])
-    if (!(seconds >= Math.floor(startedAt / 1000))) return undefined
-    const subject = line.slice(sha.length + selector.length + 2)
+  for (const line of reflog.split('\n').slice(0, added)) {
+    const [sha = '', subject = ''] = line.split('\t', 2)
     if (/^commit(?: \((?:initial|merge)\))?:/.test(subject)) return amended ?? sha
     if (/^commit \(amend\):/.test(subject)) amended ??= sha
   }

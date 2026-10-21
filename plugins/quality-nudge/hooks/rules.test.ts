@@ -28,20 +28,25 @@ describe('codeChange', () => {
 })
 
 describe('madeCommit', () => {
-  test('takes the newest commit made since the call started, past a pull', () => {
-    expect(madeCommit('p2\tHEAD@{1001}\tpull: Fast-forward\nc1\tHEAD@{1000}\tcommit: feat: x', 1_000_500)).toBe('c1')
-    expect(madeCommit('m1\tHEAD@{1000}\tcommit (merge): Merge branch x', 1_000_000)).toBe('m1')
+  test('takes the newest commit among the entries the call added, past a pull', () => {
+    expect(madeCommit('p2\tpull: Fast-forward\nc1\tcommit: feat: x\nc0\tcommit: y', 2)).toBe('c1')
+    expect(madeCommit('m1\tcommit (merge): Merge branch x\nc0\tcommit: y', 1)).toBe('m1')
+    expect(madeCommit('c1\tcommit (initial): x', 1)).toBe('c1')
+  })
+
+  test('finds a commit when the call checks out back to the HEAD it started from', () => {
+    expect(madeCommit('c0\tcheckout: moving from fix to main\nc1\tcommit: x\nc0\tcheckout: moving from main to fix\nc0\tcommit: y', 3)).toBe('c1')
   })
 
   test('measures an amend of a commit from the same call, and skips an amend of an older one', () => {
-    expect(madeCommit('a2\tHEAD@{1000}\tcommit (amend): x\nc1\tHEAD@{1000}\tcommit (initial): x', 1_000_000)).toBe('a2')
-    expect(madeCommit('a2\tHEAD@{1000}\tcommit (amend): x\nc1\tHEAD@{900}\tcommit: x', 1_000_000)).toBeUndefined()
+    expect(madeCommit('a2\tcommit (amend): x\nc1\tcommit (initial): x', 2)).toBe('a2')
+    expect(madeCommit('a2\tcommit (amend): x\nc1\tcommit: x', 1)).toBeUndefined()
   })
 
   test('ignores commits from before the call and moves that are not commits', () => {
-    expect(madeCommit('c1\tHEAD@{999}\tcommit: x', 1_000_000)).toBeUndefined()
-    expect(madeCommit('r1\tHEAD@{1000}\treset: moving to HEAD~1\nc0\tHEAD@{900}\tcommit: x', 1_000_000)).toBeUndefined()
-    expect(madeCommit('', 1_000_000)).toBeUndefined()
+    expect(madeCommit('c1\tcommit: x', 0)).toBeUndefined()
+    expect(madeCommit('r1\treset: moving to HEAD~1\nc0\tcommit: x', 1)).toBeUndefined()
+    expect(madeCommit('', 0)).toBeUndefined()
   })
 })
 
