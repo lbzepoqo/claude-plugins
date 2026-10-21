@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { engineInstructions, isCommit, limitOption, parseMark, ruleText, shouldCompact, shouldRemind, turnEnd } from '../hooks/register'
+import { contextNote, contextNoteDue, engineInstructions, isCommit, limitOption, parseMark, ruleText, shouldCompact, shouldRemind, turnEnd } from '../hooks/register'
 
 const limits = { boundaryTokens: 200_000, softTokens: 300_000 }
 
@@ -67,4 +67,14 @@ test("Claude Code's own compaction gets the mark's focus when it has no instruct
   expect(engineInstructions('auto', 'the user text', busy)).toBe('the user text')
   expect(engineInstructions('manual', undefined, busy)).toBe(undefined)
   expect(engineInstructions('auto', undefined, null)).toBe(undefined)
+})
+
+test('the context note comes once at the boundary limit and again only after the context fell below it', () => {
+  expect(contextNoteDue(199_999, false, limits)).toEqual({ due: false, noted: false })
+  expect(contextNoteDue(200_000, false, limits)).toEqual({ due: true, noted: true })
+  expect(contextNoteDue(260_000, true, limits)).toEqual({ due: false, noted: true })
+  expect(contextNoteDue(90_000, true, limits)).toEqual({ due: false, noted: false })
+  expect(contextNoteDue(undefined, true, limits)).toEqual({ due: false, noted: true })
+  expect(contextNote(204_000, 'mcp__x__mark')).toContain('The context holds 204k tokens')
+  expect(contextNote(204_000, 'mcp__x__mark')).toContain('call mcp__x__mark with `boundary`')
 })

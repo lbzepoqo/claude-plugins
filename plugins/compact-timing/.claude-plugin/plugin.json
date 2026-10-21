@@ -1,6 +1,6 @@
 {
   "name": "compact-timing",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Compacts the conversation at task boundaries instead of at a fixed token count: the model marks the session busy or at a boundary, and the plugin compacts at the end of a turn when the mark and the context size allow it",
   "author": {
     "name": "lbzepoqo",
@@ -21,6 +21,12 @@
       "title": "Soft limit tokens",
       "description": "Without a busy mark, compact when the context holds at least this many tokens. Keep autoCompactWindow above this as the hard limit",
       "default": 300000
+    },
+    "contextNote": {
+      "type": "boolean",
+      "title": "Context note",
+      "description": "Once the context reaches boundaryTokens, tell the model to suggest /clear or a handoff when a request starts unrelated work, and to set the boundary mark at the next break when it continues the work",
+      "default": true
     }
   }
 }

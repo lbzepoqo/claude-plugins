@@ -6,6 +6,8 @@ export type Mark = { state: 'busy' | 'boundary'; focus: string }
 // The last mark the model set in this session. Values are held per session, so sessions do not see
 // each other's marks.
 const mark = atom({ plugin: 'compact-timing', key: 'mark' } as const, null as Mark | null)
+// Whether this period already had the context note; cleared once the context falls below boundaryTokens.
+const noted = atom({ plugin: 'compact-timing', key: 'noted' } as const, false)
 
 /** The tool input as the model sends it, or null when the state is not one of the two. */
 export const parseMark = (input: { state?: unknown; focus?: unknown }): Mark | null => {
@@ -92,6 +94,26 @@ export const turnEnd = (
 export const engineInstructions = (trigger: string, instructions: string | undefined, current: Mark | null) =>
   trigger === 'auto' && !instructions?.trim() && current?.focus ? current.focus : instructions
 
+/**
+ * Whether a prompt gets the context note: once when the context reaches `boundaryTokens`, and again only
+ * after it fell below that (a compaction or a fresh session). Returns the new `noted` flag with the decision.
+ */
+export const contextNoteDue = (tokens: number | undefined, noted: boolean, limits: Limits): { due: boolean; noted: boolean } => {
+  if (tokens === undefined) return { due: false, noted }
+  if (tokens < limits.boundaryTokens) return { due: false, noted: false }
+  return { due: !noted, noted: true }
+}
+
+/**
+ * Sent with the prompt that finds the context large. A topic switch without a commit gets no boundary mark,
+ * and a plugin cannot compact before the prompt runs, so the model is asked to suggest a fresh session.
+ */
+export const contextNote = (tokens: number, toolName: string) =>
+  [
+    'compact-timing: an automatic note the user does not see.',
+    `- The context holds ${thousands(tokens)} tokens. From now on, when a request starts new work: if it continues the current work, call ${toolName} with \`boundary\` at the next natural break; if it is unrelated and needs nothing from this conversation, suggest a fresh session (/clear or a new terminal); if it is new but needs a few facts from here, suggest a short handoff and then a fresh session. If the current request already starts new work, apply this now. Suggest it at most once; the user decides.`,
+  ].join('\n')
+
 /** A positive number from the settings, else the default: an empty or misspelled value must not compact every turn. */
 export const limitOption = (value: unknown, fallback: number): number => {
   const parsed = Number(value)
@@ -104,6 +126,7 @@ export const register: Register = (on, options) => {
     softTokens: limitOption(options.softTokens, 300_000),
   }
   let markTool = 'mcp__compact-timing__mark'
+  const isContextNoteOn = options.contextNote !== false
 
   on('session.start', async ($, e, next) => {
     const registered = await $.tool.register({ name: 'mark', description: ruleText(limits), inputSchema: markSchema, isDeferred: false })
@@ -153,6 +176,26 @@ export const register: Register = (on, options) => {
     return result
   })
 
+  // Only a request the user typed (or sent from a remote or SDK host) gets the note: a task notification,
+  // a scheduled prompt or a slash command would use it up without the user's next topic seeing it.
+  on('prompt.submit', async ($, e, next) => {
+    const isUserRequest = ['composer', 'bridge', 'sdk'].includes(e.origin.kind) && e.command === undefined && e.isMeta === undefined
+    if (!isContextNoteOn || !isUserRequest) return next(e)
+    const [previous, tokens] = await Promise.all([
+      read($, noted).catch(() => undefined),
+      $.session.usage().then(usage => usage.context.tokens).catch(() => undefined),
+    ])
+    if (previous === undefined) return next(e)
+    const decision = contextNoteDue(tokens, previous, limits)
+    if (decision.noted !== previous) {
+      const isStored = await update($, noted, () => decision.noted).then(() => true, () => false)
+      // A note whose flag was not stored would come again with every prompt.
+      if (!isStored) return next(e)
+    }
+    if (!decision.due || tokens === undefined) return next(e)
+    return next({ ...e, context: [...(e.context ?? []), contextNote(tokens, markTool)] })
+  })
+
   // Any compaction that replaces the conversation, also the automatic one at the hard limit, starts the
   // next period without a mark. A precompute installs nothing, so the mark stays.
   on('session.compact', async ($, e, next) => {
@@ -162,8 +205,12 @@ export const register: Register = (on, options) => {
       if (instructions !== e.instructions) e = { ...e, instructions }
     }
     const result = await next(e)
-    if (e.agentId === undefined && e.trigger !== 'precompute' && result.skip === undefined)
+    if (e.agentId === undefined && e.trigger !== 'precompute' && result.skip === undefined) {
       await update($, mark, () => null).catch(() => undefined)
+      // The usage figure stays at the pre-compaction size until the next response, so the note is held
+      // until a prompt reads a size below boundaryTokens.
+      await update($, noted, () => true).catch(() => undefined)
+    }
     return result
   })
 }

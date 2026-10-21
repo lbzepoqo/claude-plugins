@@ -20,6 +20,8 @@ A `boundary` mark counts only at the end of the turn in which the model set it. 
 
 After a `git commit`, the plugin reminds the model to set the mark when the context has reached `boundaryTokens`, or when the mark is `busy`. A commit is the most common task boundary, and without the reminder the model often forgets the tool. Below `boundaryTokens` a `boundary` mark has no effect, so without a `busy` mark there is no reminder.
 
+Switching to an unrelated topic without a commit gets no mark, and a plugin cannot compact before a prompt runs. So the first prompt that finds the context at `boundaryTokens` or more carries a note to the model: suggest `/clear` when the request is unrelated, a short handoff when it needs a few facts from the conversation, or set `boundary` at the next break when it continues the work. The note comes once, and again only after the context has fallen below `boundaryTokens`.
+
 A `busy` mark that is never replaced stops the plugin from compacting. Claude Code's own automatic compaction still runs at `autoCompactWindow`. Keep that setting above 300k, for example:
 
 ```json
@@ -43,6 +45,7 @@ Restart Claude Code.
 |---|---|---|
 | `boundaryTokens` | 200000 | Context size at which a `boundary` mark causes compaction |
 | `softTokens` | 300000 | Context size at which the plugin compacts when there is no mark |
+| `contextNote` | true | Send the note about a fresh session when the context reaches `boundaryTokens` |
 
 Change them with `/plugin configure compact-timing@lbzepoqo` in Claude Code, or from the shell:
 
