@@ -34,9 +34,11 @@ The core stance: **treat your own first answer as a hypothesis, not a result.** 
 - **Re-derive, do not inherit.**
   - Existing configs, prior implementations, accepted community answers, and your own earlier conclusions in the same session are all inputs to check, not facts to build on.
   - When a doc or memory conflicts with the code, the code is ground truth.
-- **Self-review the diff as a hostile reviewer before committing.**
+- **Self-review the diff as a hostile reviewer, then get an outside check before calling it done.**
   - Re-read every changed line asking "what input breaks this" rather than "does this look like what I meant".
   - Scan generated code for the known drift patterns: bare abbreviated names, AI-voice comments, leftover debug output, promises the code does not keep.
+  - Your own review is a first pass, not the verdict: a model grading its own work tends to favor it.
+  - The verdict comes from outside: a test or build that ran, or a reviewer with a fresh context that did not write the change (a subagent, the `code-review` skill).
 - **One counter-experiment beats three confirmations.**
   - When you believe you found the cause, try to make the bug happen *without* your suspected cause, or make it not happen *with* it. Confirmation-only testing feels rigorous and proves little.
 

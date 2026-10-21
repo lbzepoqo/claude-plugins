@@ -1,6 +1,6 @@
 {
   "name": "working-method",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Skills for how Claude works on a task: hard multi-step tasks, context docs, surviving a usage limit, and git worktrees",
   "author": { "name": "lbzepoqo" },
   "license": "MIT"
