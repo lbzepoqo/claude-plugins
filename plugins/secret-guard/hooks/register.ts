@@ -121,8 +121,10 @@ export const secretCommand = (command: string, home: string): string | undefined
   // A script that prints the whole environment is printenv by another name.
   const runnable = withoutDataHeredocs(command)
   if (/\b(console\.log|print|JSON\.stringify|json\.dumps)\(\s*(process\.env|os\.environ)\s*\)/.test(runnable)) return 'printing the whole environment prints secrets'
+  // A command name in a script body is text; the files the script opens are still checked.
+  const shellSegments = new Set(commandSegments(withoutDataHeredocs(command, { dropScripts: true })))
   for (const seg of commandSegments(runnable)) {
-    if (SECRET_COMMANDS.some(r => r.test(seg))) return `\`${seg.split(/\s+/).slice(0, 3).join(' ')}\` prints secrets`
+    if (shellSegments.has(seg) && SECRET_COMMANDS.some(r => r.test(seg))) return `\`${seg.split(/\s+/).slice(0, 3).join(' ')}\` prints secrets`
     const words = pathWords(withoutJqFilter(seg))
     const cmd = words[0] ?? ''
     if (NON_READING.has(cmd)) continue

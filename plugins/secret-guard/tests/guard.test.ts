@@ -132,6 +132,15 @@ test('a heredoc body that can run is still read', () => {
     expect(secretCommand(c, HOME)).toBeDefined()
 })
 
+test('a command name in a quoted python or node script is text, while the files it opens are still checked', () => {
+  for (const c of [`python3 - <<'EOF'\nnote = "the env; printenv lists it"\nEOF`, `node <<'JS'\nconsole.log('a'); env\nJS`,
+    `python3 <<'PY' > out.txt\nhelp = """\nprintenv\n"""\nPY`])
+    expect(secretCommand(c, HOME)).toBeUndefined()
+  for (const c of [`python3 - <<EOF\nx = "$(printenv)"\nEOF`, `python3 - <<'EOF' | sh\nprintenv\nEOF`, `{ python3 - <<'EOF'\nprintenv\nEOF\n} | bash`,
+    `python3 - <<'EOF'\nnote = "x; printenv"\nopen('.env')\nEOF`, `python3 - <<'EOF'\nprint(os.environ)\nEOF`])
+    expect(secretCommand(c, HOME)).toBeDefined()
+})
+
 test('a comment, a line continuation, a $\'…\' quote or a quote in a <<EOF body hides no command', () => {
   for (const c of [`true # don't log secrets\nprintenv`, `ls # don't\ncat .env`, `echo $(true # don't\nprintenv)`,
     `printf $'it\\'s done\\n'; printenv`, `ls $'don\\'t'; cat .env`, `python3 - <<'EOF'\nprint("a")\n'''it's'''\nopen(".env")\nEOF`,

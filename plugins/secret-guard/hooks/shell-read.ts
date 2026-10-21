@@ -94,16 +94,19 @@ export const commandSegments = (command: string): string[] => {
 const QUOTED = String.raw`'[^']*'|"(?:[^"\x60\\$]|\$(?!\())*"`
 const AND_STEP = String.raw`(?:[^<>|;&'"\x60\\()#]|${QUOTED})*`
 const FILE_NAME = String.raw`(?:[^\s<>|;&'"\x60\\()#]|${QUOTED})+`
-const DATA_HEREDOC = new RegExp(
-  String.raw`^(?:${AND_STEP}&&)*\s*(?:cat(?:\s*>>?\s*${FILE_NAME})?|tee\s+(?:-a\s+)?${FILE_NAME})\s*<<-?\s*(['"])([\w.-]+)\1(?:\s*>>?\s*${FILE_NAME})?(?:\s+#.*)?\s*$`,
-)
+const heredocOpener = (writer: string) =>
+  new RegExp(String.raw`^(?:${AND_STEP}&&)*\s*(?:${writer})\s*<<-?\s*(['"])([\w.-]+)\1(?:\s*>>?\s*${FILE_NAME})?(?:\s+#.*)?\s*$`)
+const DATA_HEREDOC = heredocOpener(String.raw`cat(?:\s*>>?\s*${FILE_NAME})?|tee\s+(?:-a\s+)?${FILE_NAME}`)
+// A script read by an interpreter from a quoted heredoc is not shell, so a command name in its text does not run.
+const SCRIPT_HEREDOC = heredocOpener(String.raw`(?:python3?|node|ruby|perl)(?:\s+-)?`)
 const HEREDOC = /(?<!<)<<(?!<)-?\s*\\?(['"]?)([\w.-]+)\1/g
 // ponytail: counts brackets without reading quotes, so a stray `)` in an earlier quote can hide a group; a parser if that matters.
 const isGrouped = (text: string) => (text.match(/[({]/g)?.length ?? 0) > (text.match(/[)}]/g)?.length ?? 0)
 
 // Drops data heredoc bodies. Any other body is kept, and no line in it opens a data heredoc. Inside an open `{`, `(`, `<(` or `$(` the
-// output of `cat` can go to bash (`{ cat <<'EOF' … } | bash`), so a body there is not data.
-export const withoutDataHeredocs = (command: string): string => {
+// output of `cat` can go to bash (`{ cat <<'EOF' … } | bash`), so a body there is not data. With `dropScripts`, interpreter script
+// bodies go too; the file names in them still need the full text.
+export const withoutDataHeredocs = (command: string, { dropScripts = false } = {}): string => {
   const kept: string[] = []
   let endings: string[] = []
   let isDataBody = false
@@ -117,7 +120,10 @@ export const withoutDataHeredocs = (command: string): string => {
       continue
     }
     // After a trailing `\` the line continues the one before it, so its heredoc can belong to another command.
-    const opener = kept.at(-1)?.endsWith('\\') || isGrouped([...kept, line].join('\n')) ? null : DATA_HEREDOC.exec(line)
+    const opener =
+      kept.at(-1)?.endsWith('\\') || isGrouped([...kept, line].join('\n'))
+        ? null
+        : DATA_HEREDOC.exec(line) ?? (dropScripts ? SCRIPT_HEREDOC.exec(line) : null)
     isDataBody = opener !== null
     endings = opener ? [opener[2] ?? ''] : [...line.matchAll(HEREDOC)].map(match => match[2] ?? '')
     kept.push(line)
