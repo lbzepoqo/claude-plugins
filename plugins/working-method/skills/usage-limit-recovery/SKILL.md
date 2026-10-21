@@ -7,7 +7,7 @@ description: How to leave work safe to interrupt (plan file, wip commit, memory)
 
 Three things on disk = safe interruption:
 1. **Plan file** (for example `~/.claude/plans/<task>.md`): must include `Project: /absolute/path` in the first line so it can be matched to the active working directory. Update with a "Resume Notes" section before stopping: what's done, what's next, any gotchas.
-2. **WIP commit:** commit even broken state with a `wip:` prefix rather than leave uncommitted changes when a limit might hit. Squash `wip:` commits into a real commit before pushing, so the pushed history stays bisectable.
+2. **WIP commit:** when the user allows you to commit, commit even broken state with a `wip:` prefix rather than leave uncommitted changes when a limit might hit. Stage only the files this task changed, by path, never everything: other staged or unstaged work in the checkout is not yours to commit. Before pushing, squash your own `wip:` commits into a real commit, so the pushed history stays bisectable, but only while they are unpushed; never rewrite commits that are already on a shared branch. Without permission to commit, leave the files as they are and put the state in the plan file's resume notes.
 3. **Memory:** write non-obvious decisions to project memory, not task state.
 
 Recovery sequence for a new session: `git log --oneline -20`, then `git status` + `git diff`, then read the active plan file, then check MEMORY.md.
