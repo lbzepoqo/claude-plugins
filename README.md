@@ -10,6 +10,14 @@ An output style changes how Claude writes its replies. It is text only: nothing 
 |---|---|
 | [grounded](plugins/grounded) | Replies open with the answer, keep every figure, do the next step when Claude can, and say what was checked |
 
+## Skills
+
+A skill is a set of instructions Claude loads when your request matches its description. Text only: nothing runs, and it costs no extra model calls.
+
+| Plugin | What it does |
+|---|---|
+| [working-method](plugins/working-method) | Four skills for how Claude works: hard multi-step tasks, CLAUDE.md upkeep, surviving a usage limit, git worktrees |
+
 ## Session plugins
 
 These run code inside Claude Code and change how a session behaves: when it compacts, what it shows you after a prompt.

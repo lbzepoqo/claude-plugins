@@ -25,6 +25,11 @@
       "name": "grounded",
       "source": "./plugins/grounded",
       "description": "Output style: answer first, keep every figure, do the work you can do, and say what was checked"
+    },
+    {
+      "name": "working-method",
+      "source": "./plugins/working-method",
+      "description": "Skills for how Claude works on a task: hard multi-step tasks, context docs, surviving a usage limit, and git worktrees"
     }
   ]
 }
