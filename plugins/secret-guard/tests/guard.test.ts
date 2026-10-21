@@ -89,18 +89,28 @@ test('browser profiles, password managers and named kubeconfigs are credential f
     '/mnt/c/Users/me/AppData/Local/Microsoft/Edge/User Data/Default/Network/Cookies',
     'C:\\Users\\me\\AppData\\Local\\Microsoft\\Edge\\User Data\\Default\\Login Data', '/mnt/c/Users/me/AppData/Local/Google/Chrome/User Data/Local State',
     '/mnt/c/Users/me/AppData/Roaming/Mozilla/Firefox/Profiles/x.default/logins.json', '~/.mozilla/firefox/x.default/key4.db',
-    '~/vault.kdbx', '~/.password-store/github.gpg', '~/.config/Bitwarden/data.json', '~/.kube/config-prod'])
+    '~/vault.kdbx', '~/.password-store/github.gpg', '~/.config/Bitwarden/data.json', '~/.kube/config-prod',
+    '~/.config/Bitwarden CLI/data.json', 'C:\\Users\\me\\AppData\\Roaming\\Bitwarden\\data.json', '~/Library/Application Support/Bitwarden CLI/data.json',
+    '/mnt/c/Users/me/AppData/Local/Packages/8bitSolutionsLLC.bitwardendesktop_h4e712dmw3xyy/LocalCache/Roaming/Bitwarden/data.json',
+    '~/Library/Containers/com.bitwarden.desktop/Data/Library/Application Support/Bitwarden/data.json', '~/.var/app/com.bitwarden.desktop/config/Bitwarden/data.json',
+    '/mnt/c/Users/me/AppData/Local/1Password/1password.sqlite', '/mnt/c/Users/me/AppData/Local/1Password/data/1Password10.sqlite',
+    '~/Library/Group Containers/2BUA8C4S2C.com.1password/Library/Application Support/1Password/Data/1password.sqlite',
+    '~/.config/Bitwarden', '~/.password-store/', '$APPDATA/Bitwarden/data.json', '%APPDATA%\\Bitwarden CLI\\data.json',
+    '${LOCALAPPDATA}/1Password/1password.sqlite', 'C:\\Users\\me\\AppData\\Local\\1Password\\'])
     expect(sensitivePath(path, HOME)).toBe(true)
-  for (const path of ['src/chrome/cookies.ts', 'extension/chrome/manifest.json', 'docs/firefox/logins.md', '~/.kube/cache/discovery', 'src/edge/web data.ts'])
+  for (const path of ['src/chrome/cookies.ts', 'extension/chrome/manifest.json', 'docs/firefox/logins.md', '~/.kube/cache/discovery', 'src/edge/web data.ts',
+    'docs/bitwarden/setup.md', '~/.config/bitwarden-notes.md', '$APPDATA/Code/settings.json', '/mnt/c/Users/me/AppData/Local/1Password/app/8/1Password.exe'])
     expect(sensitivePath(path, HOME)).toBe(false)
 })
 
-test('a quoted browser path with spaces is read as one path, a quoted sentence is not', () => {
+test('a quoted path with spaces is read as one path, a quoted sentence is not', () => {
   for (const command of ['cat "/mnt/c/Users/me/AppData/Local/Microsoft/Edge/User Data/Default/Login Data"',
     "sqlite3 '/Users/me/Library/Application Support/Google/Chrome/Default/Web Data' 'select * from autofill'",
     'cat "C:/Users/me/AppData/Local/Google/Chrome/User Data/Local State"', 'cat "$LOCALAPPDATA/Google/Chrome/User Data/Local State"',
     'cd /mnt/c/Users/me && cat "AppData/Local/Google/Chrome/User Data/Default/Login Data"',
-    'bash -c "cat \'/mnt/c/Users/me/AppData/Local/Microsoft/Edge/User Data/Default/Login Data\'"'])
+    'bash -c "cat \'/mnt/c/Users/me/AppData/Local/Microsoft/Edge/User Data/Default/Login Data\'"',
+    'cat "$HOME/.config/Bitwarden CLI/data.json"', 'tar czf /tmp/bw.tgz ~/.config/Bitwarden', 'grep -rn password "$APPDATA/Bitwarden"',
+    'cp -r "$HOME/Library/Group Containers/2BUA8C4S2C.com.1password" /tmp/x', 'cat "C:\\Users\\John Smith\\AppData\\Local\\1Password\\1password.sqlite"', 'cp "$HOME/Library/Group Containers/2BUA8C4S2C.com.1password/Library/Application Support/1Password/Data/1password.sqlite" /tmp'])
     expect(secretCommand(command, HOME)).toBeDefined()
   for (const command of ['grep -n "Login Data" notes.md', 'echo "--- compose/.env.example diff:"', 'git commit -m "./src: read the port from process.env"',
     'git commit -m "~/.ssh/config: add github host"', 'echo "./compose/.env.example updated"'])

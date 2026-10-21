@@ -67,11 +67,16 @@ export const scrubDeep = <T>(value: T, found: string[]): T => {
   return value
 }
 
-// Browser profiles, whose paths hold spaces (`Application Support`, `User Data`, `Login Data`). Local State holds the key
-// that decrypts Chromium's cookies and passwords.
-const BROWSER_PATHS: readonly RegExp[] = [
+// Browser profiles and password-manager data, whose paths can hold spaces (`Application Support`, `User Data`, `Bitwarden CLI`,
+// a Windows user name). Local State holds the key that decrypts Chromium's cookies and passwords. A vault folder counts as a
+// whole, so `tar` or `cp -r` of it is caught.
+const SPACED_PATHS: readonly RegExp[] = [
   /\/library\/(application support|cookies)\/.*\/(login data|cookies|cookies\.sqlite|key4\.db|logins\.json)$/,
   /\/(google-chrome[^/]*|chromium|chrome|brave-browser|bravesoftware|microsoft-edge[^/]*|edge|firefox|mozilla)\/.*\/(login data[^/]*|(extension )?cookies(-journal)?|web data(-journal)?|local state|vpn tokens(-journal)?|cookies\.sqlite(-shm|-wal)?|key4\.db|logins(-backup)?\.(json|db)|formhistory\.sqlite)$/,
+  /\/(\.config|appdata\/roaming|library\/application support)\/bitwarden( cli)?(\/|$)/, /\/bitwarden-appdata(\/|$)/,
+  /\/packages\/8bitsolutionsllc\.bitwardendesktop_[^/]*(\/|$)/,
+  /\/appdata\/local\/1password(\/data)?(\/[^/]*\.sqlite[^/]*)?\/?$/, /\/appdata\/local\/1password\/data\//,
+  /\/library\/group containers\/2bua8c4s2c\.com\.(1password|agilebits)(\/|$)/,
 ]
 
 // Matched against the lowercased path with forward slashes and a leading slash.
@@ -92,13 +97,17 @@ const SENSITIVE_PATHS: readonly RegExp[] = [
   /\/\.gnupg\/[^/]+/, /\/\.terraform\.d\/credentials\.tfrc\.json$/,
   /\.tfstate(\.backup)?$/, /\/terraform\.tfvars(\.json)?$/, /\.auto\.tfvars(\.json)?$/,
   /\/\.claude\/\.credentials\.json$/, /\/\.codex\/auth\.json$/, /\/\.gemini\/oauth_creds\.json$/,
-  /\/library\/keychains\//, ...BROWSER_PATHS,
-  /\.kdbx$/, /\/\.password-store\//, /\/\.config\/(1password|bitwarden)\//, /\/\.(lastpass|bitwarden)\//,
+  /\/library\/keychains\//, ...SPACED_PATHS,
+  /\.kdbx$/, /\/(\.password-store|\.config\/1password|\.lastpass|\.bitwarden)(\/|$)/,
+  /\/(library\/containers\/com\.bitwarden\.desktop|\.var\/app\/com\.bitwarden\.desktop)(\/|$)/,
   /\/proc\/[^/]+\/environ$/, /\/run\/secrets\//, /\/etc\/shadow$/, /\/etc\/ssh\/ssh_host_[^/]+_key$/,
 ]
 
 export const sensitivePath = (path: string, home: string, rules = SENSITIVE_PATHS): boolean => {
+  // `$APPDATA` and `$LOCALAPPDATA` (Git Bash) and their `%…%` forms become Windows paths, so the AppData rules see them.
   const expanded = path.replace(/^(~|\$HOME|\$\{HOME\})(?=\/|$)/, home)
+    .replace(/^(\$LOCALAPPDATA|\$\{LOCALAPPDATA\}|%LOCALAPPDATA%)(?=[\\/]|$)/i, 'C:\\AppData\\Local')
+    .replace(/^(\$APPDATA|\$\{APPDATA\}|%APPDATA%)(?=[\\/]|$)/i, 'C:\\AppData\\Roaming')
   // A backslash separates directories only in a Windows path; elsewhere it is part of a search pattern (`grep '\.env'`).
   const isWindowsPath = /^(?:[a-z]:\\|\\\\)/i.test(expanded)
   const p = ('/' + (isWindowsPath ? expanded.replace(/\\/g, '/') : expanded)).replace(/\/+/g, '/').toLowerCase()
@@ -141,8 +150,8 @@ export const secretCommand = (command: string, home: string): string | undefined
     const token = checked.find(w => sensitivePath(withoutTrailingPunctuation(w), home))
     if (token) return `${token} is a credential file`
     // A quoted sentence ends like many paths (`-m "~/.ssh/config: add a host"`), so a whole quoted word is held only to
-    // the browser rules, the paths that need one.
-    const quotedPath = quotedWords(seg).find(word => sensitivePath(word, home, BROWSER_PATHS))
+    // the rules for paths with spaces, the ones that need it.
+    const quotedPath = quotedWords(seg).find(word => sensitivePath(word, home, SPACED_PATHS))
     if (quotedPath) return `${quotedPath} is a credential file`
   }
   return undefined
