@@ -20,6 +20,11 @@
       "name": "topic-nudge",
       "source": "./plugins/topic-nudge",
       "description": "Shows a toast when a prompt starts a different topic than the earlier requests in the session, so you can /clear first"
+    },
+    {
+      "name": "grounded",
+      "source": "./plugins/grounded",
+      "description": "Output style: answer first, keep every figure, do the work you can do, and say what was checked"
     }
   ]
 }

@@ -1,2 +1,5 @@
 # Written by Claude Code on every load of a plugin
 .claude-plugin/types/
+
+# Eval run output
+plugins/*/evals/results/
