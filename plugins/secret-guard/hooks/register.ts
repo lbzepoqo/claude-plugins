@@ -123,7 +123,11 @@ const SECRET_COMMANDS: readonly RegExp[] = [
   /^az account get-access-token\b/,
   /^kubectl (config view .*--raw|get secrets?\b)/,
   /^git (credential fill|config .*--get.*credential)/,
-  /^(op read|bw get|vault (read|kv get)|doppler secrets|heroku auth:token)\b/,
+  /^(op read|vault (read|kv get)|doppler secrets|heroku auth:token)\b/,
+  // Global options can come before the subcommand (`bw --session x list items`), so the words are looked for anywhere.
+  // A session key is as good as the vault, so the commands that print one are refused too.
+  /^bw\b(?=.* (get|export|receive)\b|.* list\b.* items\b|.* unlock\b)/,
+  /^op\b(?=.* (inject|signin\b.* --raw)\b|.* document get\b|.* items? get\b.* --(reveal|otp|format)\b)/,
   /^(echo|printf)\b.*\$\{?[A-Za-z0-9_]*(TOKEN|SECRET|PASSWORD|PASSWD|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIAL)/i,
 ]
 
@@ -132,6 +136,19 @@ const SECRET_COMMANDS: readonly RegExp[] = [
 const withoutTrailingPunctuation = (word: string) => word.replace(/(?<=[^./])[.,;:!?)]+$/, '')
 
 // These touch a credential file without printing what is in it.
+// The command a segment runs, as the rules above read it: single spaces, without leading `NAME=value` assignments or
+// `env`, and with a path or a package runner reduced to the tool's name (`/usr/bin/bw`, `npx @bitwarden/cli`).
+const ASSIGNMENT = String.raw`[A-Za-z_][A-Za-z0-9_]*=(?:'[^']*'|"[^"]*"|\S)*`
+const LEADING = new RegExp(String.raw`^(?:${ASSIGNMENT}|env(?: (?:-[iv0]+|-u \S+|--?\S+=\S*|--))*(?= )|sudo|command|exec|time|nohup) `)
+export const commandHead = (segment: string): string => {
+  let head = segment.replace(/\s+/g, ' ').trim()
+  for (let previous = ''; previous !== head; ) {
+    previous = head
+    head = head.replace(LEADING, '')
+  }
+  return head.replace(/^(?:(?:npx|bunx|pnpm dlx)(?: -y)? @bitwarden\/cli|\S*\/(?=\S))/, match => (match.includes('@bitwarden') ? 'bw' : ''))
+}
+
 const NON_READING = new Set(['ls', 'stat', 'test', '[', 'touch', 'chmod', 'chown', 'rm'])
 
 export const secretCommand = (command: string, home: string): string | undefined => {
@@ -141,7 +158,8 @@ export const secretCommand = (command: string, home: string): string | undefined
   // A command name in a script body is text; the files the script opens are still checked.
   const shellSegments = command.includes('<<') ? new Set(commandSegments(withoutDataHeredocs(command, { dropScripts: true }))) : undefined
   for (const seg of commandSegments(runnable)) {
-    if ((shellSegments?.has(seg) ?? true) && SECRET_COMMANDS.some(r => r.test(seg))) return `\`${seg.split(/\s+/).slice(0, 3).join(' ')}\` prints secrets`
+    const head = commandHead(seg)
+    if ((shellSegments?.has(seg) ?? true) && SECRET_COMMANDS.some(r => r.test(head))) return `\`${head.split(' ').slice(0, 3).join(' ')}\` prints secrets`
     const words = pathWords(withoutJqFilter(seg))
     const cmd = words[0] ?? ''
     if (NON_READING.has(cmd)) continue
