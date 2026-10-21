@@ -8,7 +8,7 @@ Reminds Claude to review its own code before it calls the work done. After a `gi
 - **Any change to guard code**, at any size: a file under a folder whose name contains `guard`, or under `git-hooks/`. A few changed lines in a pattern can open a gap.
 - **300 or more lines:** `/simplify` is asked for too, since a large diff can crowd the cleanup angles out of code-review's findings.
 
-A review counts for every commit whose parent was written before the review ran, so fix commits made after a review are not reminded again. `wip:` commits are skipped. Commits are found from the Bash tool's git report and the reflog, so a commit made by an alias or a script is seen too.
+A review counts for every commit whose parent was written before the review ran, so fix commits made after a review are not reminded again. A review counts only for the repository of the session's working directory, and a review call that was denied or failed does not count. `wip:` commits are skipped. Commits are found from the Bash tool's git report and the reflog, so a commit made by an alias or a script is seen too.
 
 ## Options
 

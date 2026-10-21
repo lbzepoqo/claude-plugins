@@ -54,14 +54,21 @@ export const register: Register = (on, options) => {
     reviewLines: limitOption(options.reviewLines, DEFAULT_LIMITS.reviewLines),
     simplifyLines: limitOption(options.simplifyLines, DEFAULT_LIMITS.simplifyLines),
   }
-  // Per session; a reload starts over, which costs at most one extra reminder.
-  const reviews: Reviews = { simplify: 0, 'code-review': 0 }
+  // Per session and per repository of the session's directory, so a review of one repository does not
+  // cover commits in another. A reload starts over, which costs at most one extra reminder.
+  const reviewsByRoot = new Map<string, Reviews>()
+  const noReviews: Reviews = { simplify: 0, 'code-review': 0 }
 
-  // Reviews count from any agent, so one run by a fork covers the change.
+  // Reviews count from any agent, so one run by a fork covers the change. A denied or failed call is no review.
   on('tool.call', { tool: 'Skill' }, async ($, e, next) => {
     const skill = reviewSkill(e.skill)
-    if (skill) reviews[skill] = await $.clock.now()
-    return next(e)
+    const startedAt = await $.clock.now()
+    const result = await next(e)
+    if (!skill || result.deny !== undefined || result.isError || result.result.success === false) return result
+    const root = await repositoryRoot($, gitRunner($), null)
+    const reviews = reviewsByRoot.get(root) ?? noReviews
+    reviewsByRoot.set(root, { ...reviews, [skill]: startedAt })
+    return result
   })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
@@ -86,12 +93,12 @@ export const register: Register = (on, options) => {
 
     const [line = '', numstat = ''] = await Promise.all([
       git(root, ['log', '-1', '--format=%s%x09%P', sha]),
-      git(root, ['diff-tree', '-M', '--no-commit-id', '--numstat', '-z', '-r', sha]),
+      git(root, ['diff-tree', '--root', '-M', '--no-commit-id', '--numstat', '-z', '-r', sha]),
     ])
     const commit = parseCommitLine(line)
     if (!commit) return result
     const parentTime = await authorTime(git, root, commit.parent)
-    const text = commitNudge({ subject: commit.subject, change: codeChange(numstat), parentTime }, reviews, limits)
+    const text = commitNudge({ subject: commit.subject, change: codeChange(numstat), parentTime }, reviewsByRoot.get(root) ?? noReviews, limits)
     if (!text) return result
     return { ...result, context: [...(result.context ?? []), `${$.plugin.name}: ${text}`] }
   })
