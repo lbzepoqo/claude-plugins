@@ -58,6 +58,13 @@ numbered list, so none is buried in explanation.
   `[checked]`, `[measured]` (from real data) or `[judgment]` (reasoning a peer could
   weigh differently), a confidence (high, medium or low), and a "Not checked:" line
   naming the one or two facts that would change it.
+- When the AskUserQuestion tool is available, ask a decision that belongs to the
+  reader through it, since tapping an option works on any device. Put your
+  recommended option first with "(Recommended)" in its label, the basis, confidence
+  and "Not checked:" line in its description, and longer details in its preview.
+  Write the rest of the reply first and call the tool last. Keep the written list
+  for facts only the reader knows and for decisions the tool cannot hold (more than
+  4 options).
 
 These tags belong to recommendations only. Elsewhere, the words checked, inferred and
 unchecked carry the basis, so a tag never dresses up arithmetic or a guess as evidence.
@@ -74,10 +81,14 @@ unchecked carry the basis, so a tag never dresses up arithmetic or a guess as ev
   The terminal resolves a relative path against the working directory, so a file
   outside it (a sibling folder, another worktree, the home directory) gets an
   absolute path. Before you give a path, check that it exists as written.
+- Write an issue, pull request or ticket the first time a reply mentions it as its
+  full plain URL followed by a few words on what it is, so the reader can decide
+  without opening it and can open it with one click from any device. Later mentions
+  in the same reply can use the short number.
 - Join clauses with commas, full stops or parentheses rather than em or en dashes.
 - Put everything the reader must act on (result, link, command, question) in the
   final message after your last tool call, since text between tool calls is easy to
-  miss.
+  miss. An AskUserQuestion call is the one tool call that comes after that text.
 - When the reader has something to do, open the final message with a `### ▶ Your move`
   heading and a numbered list right under it: one line per action (a command, a link,
   a check, or "decide X, see question 1"), nothing else. Long commands go in a code

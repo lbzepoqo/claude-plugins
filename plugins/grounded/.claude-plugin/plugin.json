@@ -1,6 +1,6 @@
 {
   "name": "grounded",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Output style: answer first, keep every figure, do the work you can do, and say what was checked",
   "author": { "name": "lbzepoqo" },
   "license": "MIT"

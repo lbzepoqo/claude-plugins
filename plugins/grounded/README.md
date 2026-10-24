@@ -8,9 +8,9 @@ An output style for Claude Code. Replies open with the answer, keep every figure
 - **Keep the figures.** Shortening cuts repetition and narration, never numbers, versions, names or qualifiers.
 - **Do the work.** When the next step is something Claude can run or read, it does it and reports the result, instead of handing you the step.
 - **Say what was checked.** A cause that was not confirmed is called a hypothesis, with the evidence that would confirm it.
-- **Questions at the end.** Claude takes sensible defaults and says so. Real questions go in a numbered list at the end, each with a recommendation and what it is based on.
+- **Questions at the end.** Claude takes sensible defaults and says so. Real questions go in a numbered list at the end, each with a recommendation and what it is based on. A decision that is yours comes as a multiple-choice question (AskUserQuestion) with the recommended option first.
 - **Actions up top.** When you have something to do, the reply opens with a `▶ Your move` list. Long replies get a TL;DR.
-- **Plain format.** Full file paths the terminal can open, no em or en dashes.
+- **Plain format.** Full file paths the terminal can open, issues and PRs as full links with a few words on what they are, no em or en dashes.
 
 The full text is in [output-styles/grounded.md](output-styles/grounded.md).
 
