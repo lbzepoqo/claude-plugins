@@ -87,12 +87,22 @@ export const turnEnd = (
 })
 
 /**
- * The instructions for a compaction Claude Code starts itself (idle, hard limit, prompt too long):
- * the mark's focus when nothing else was given. Only a `busy` mark outlives its turn, so this keeps
- * the details of an unfinished step in the summary.
+ * Steps handed to the user are not the model's own pending tasks, and a summary once dropped a test the model had
+ * asked the user to run. Commands stay exact and the rest stays short, so the list does not grow with each compaction.
  */
-export const engineInstructions = (trigger: string, instructions: string | undefined, current: Mark | null) =>
-  trigger === 'auto' && !instructions?.trim() && current?.focus ? current.focus : instructions
+export const openUserSteps =
+  'Keep every step, command or question the assistant gave the user that the user has not yet reported done or answered: commands exactly, the rest briefly, with what each one is for.'
+
+/**
+ * Instructions for every compaction of the main conversation: the ones given, or the mark's focus for a compaction
+ * Claude Code starts itself (trigger `auto` or `precompute`), followed by the open user steps.
+ * Only a `busy` mark outlives its turn, so the focus keeps the details of an unfinished step in the summary.
+ */
+export const compactInstructions = (trigger: string, instructions: string | undefined, current: Mark | null) => {
+  const isEngine = trigger === 'auto' || trigger === 'precompute'
+  const given = instructions?.trim() || (isEngine ? current?.focus : '')
+  return [given, openUserSteps].filter(Boolean).join('\n\n')
+}
 
 /**
  * Whether a prompt gets the context note: once when the context reaches `boundaryTokens`, and again only
@@ -168,7 +178,7 @@ export const register: Register = (on, options) => {
         return decision.next
       })
       if (!decision.compact) return result
-      const outcome = await $.session.compact(current?.focus ? { instructions: current.focus } : {})
+      const outcome = await $.session.compact({ instructions: compactInstructions('plugin', current?.focus, current) })
       if ('skip' in outcome && outcome.skip !== undefined) $.ui.toast(`compact-timing: compaction skipped (${outcome.skip})`)
     } catch (error) {
       $.ui.toast(`compact-timing: end of turn failed (${error instanceof Error ? error.message : String(error)})`)
@@ -196,15 +206,15 @@ export const register: Register = (on, options) => {
     return next({ ...e, context: [...(e.context ?? []), contextNote(tokens, markTool)] })
   })
 
-  // Any compaction that replaces the conversation, also the automatic one at the hard limit, starts the
-  // next period without a mark. A precompute installs nothing, so the mark stays.
   on('session.compact', async ($, e, next) => {
-    if (e.agentId === undefined && e.trigger === 'auto') {
+    // The plugin's own compaction already carries its instructions.
+    if (e.agentId === undefined && e.trigger !== 'plugin') {
       const current = await read($, mark).catch(() => null)
-      const instructions = engineInstructions(e.trigger, e.instructions, current)
-      if (instructions !== e.instructions) e = { ...e, instructions }
+      e = { ...e, instructions: compactInstructions(e.trigger, e.instructions, current) }
     }
     const result = await next(e)
+    // A compaction that replaces the conversation, also the automatic one at the hard limit, clears the mark.
+    // A precompute installs nothing, so the mark stays.
     if (e.agentId === undefined && e.trigger !== 'precompute' && result.skip === undefined) {
       await update($, mark, () => null).catch(() => undefined)
       // The usage figure stays at the pre-compaction size until the next response, so the note is held

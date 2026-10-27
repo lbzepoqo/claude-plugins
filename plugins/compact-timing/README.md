@@ -6,7 +6,7 @@ This plugin lets the model choose the moment. The model sets a mark when it fini
 
 ## How it works
 
-The plugin gives the model a tool, `mark`, with two inputs: the state, and a focus that says what the summary must keep. The focus is passed to the compaction as its instructions.
+The plugin gives the model a tool, `mark`, with two inputs: the state, and a focus that says what the summary must keep. The focus is passed to the compaction as its instructions, together with a request to keep the user's open steps (see below).
 
 | Mark | Meaning | The plugin compacts at the end of the turn when the context contains |
 |---|---|---|
@@ -28,7 +28,9 @@ A `busy` mark that is never replaced stops the plugin from compacting. Claude Co
 { "autoCompactWindow": 500000 }
 ```
 
-Claude Code also compacts on its own: at `autoCompactWindow`, on a prompt that is too long, and while the session is idle before the prompt cache expires. These compactions do not wait for the mark. When the mark has a focus and the compaction has no instructions of its own, the plugin passes the focus as the instructions, so the summary still keeps what a `busy` step needs.
+Claude Code also compacts on its own: at `autoCompactWindow`, on a prompt that is too long, and while the session is idle before the prompt cache expires. These compactions do not wait for the mark. When one has no instructions of its own, the plugin passes the mark's focus as the instructions. The same holds for the precompute Claude Code runs while the session is idle. So the summary still keeps what a `busy` step needs.
+
+Every compaction of the main conversation gets one more request, also a `/compact` you type. It asks the summary to keep each step, command or question the model gave the user that the user has not yet reported done or answered. Commands stay exact and the rest stays short. Claude Code's summary already lists the model's own pending tasks, but not the user's. In one session the summary dropped a four-step test the model had asked the user to run shortly before the compaction, and the model then said it had never asked for it.
 
 ## Install
 

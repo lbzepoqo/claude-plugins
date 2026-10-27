@@ -1,6 +1,6 @@
 {
   "name": "compact-timing",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Compacts the conversation at task boundaries instead of at a fixed token count: the model marks the session busy or at a boundary, and the plugin compacts at the end of a turn when the mark and the context size allow it",
   "author": {
     "name": "lbzepoqo",

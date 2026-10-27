@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { contextNote, contextNoteDue, engineInstructions, isCommit, limitOption, parseMark, ruleText, shouldCompact, shouldRemind, turnEnd } from '../hooks/register'
+import { compactInstructions, contextNote, contextNoteDue, isCommit, limitOption, openUserSteps, parseMark, ruleText, shouldCompact, shouldRemind, turnEnd } from '../hooks/register'
 
 const limits = { boundaryTokens: 200_000, softTokens: 300_000 }
 
@@ -61,12 +61,15 @@ test('an empty or misspelled limit falls back to the default', () => {
   expect(limitOption(undefined, 300_000)).toBe(300_000)
 })
 
-test("Claude Code's own compaction gets the mark's focus when it has no instructions", () => {
+test('every compaction asks for the open user steps; only one Claude Code starts falls back to the focus', () => {
   const busy = { state: 'busy' as const, focus: 'Keep the failing test name.' }
-  expect(engineInstructions('auto', undefined, busy)).toBe('Keep the failing test name.')
-  expect(engineInstructions('auto', 'the user text', busy)).toBe('the user text')
-  expect(engineInstructions('manual', undefined, busy)).toBe(undefined)
-  expect(engineInstructions('auto', undefined, null)).toBe(undefined)
+  expect(compactInstructions('auto', undefined, busy)).toBe(`Keep the failing test name.\n\n${openUserSteps}`)
+  expect(compactInstructions('precompute', ' ', busy)).toBe(`Keep the failing test name.\n\n${openUserSteps}`)
+  expect(compactInstructions('auto', 'the user text', busy)).toBe(`the user text\n\n${openUserSteps}`)
+  expect(compactInstructions('manual', undefined, busy)).toBe(openUserSteps)
+  expect(compactInstructions('manual', 'keep the plan', busy)).toBe(`keep the plan\n\n${openUserSteps}`)
+  expect(compactInstructions('plugin', 'Next: deploy.', null)).toBe(`Next: deploy.\n\n${openUserSteps}`)
+  expect(compactInstructions('auto', undefined, null)).toBe(openUserSteps)
 })
 
 test('the context note comes once at the boundary limit and again only after the context fell below it', () => {
