@@ -94,14 +94,22 @@ export const openUserSteps =
   'Keep every step, command or question the assistant gave the user that the user has not yet reported done or answered: commands exactly, the rest briefly, with what each one is for.'
 
 /**
+ * Claude Code appends the transcript path to the summary and says to read it, but a transcript holds one long JSON
+ * record per line, so reading it whole refills the context the compaction freed. `command` skips a shell function
+ * named grep (such as one calling ugrep, which rejects this window as too complex).
+ */
+export const transcriptSearch =
+  "End the summary with this line: \"For exact details the summary dropped (error text, paths, numbers), search the full transcript with command grep -oE '.{0,200}<term>.{0,200}' rather than reading it whole: each line is one long JSON record.\""
+
+/**
  * Instructions for every compaction of the main conversation: the ones given, or the mark's focus for a compaction
- * Claude Code starts itself (trigger `auto` or `precompute`), followed by the open user steps.
+ * Claude Code starts itself (trigger `auto` or `precompute`), followed by the open user steps and the transcript search.
  * Only a `busy` mark outlives its turn, so the focus keeps the details of an unfinished step in the summary.
  */
 export const compactInstructions = (trigger: string, instructions: string | undefined, current: Mark | null) => {
   const isEngine = trigger === 'auto' || trigger === 'precompute'
   const given = instructions?.trim() || (isEngine ? current?.focus : '')
-  return [given, openUserSteps].filter(Boolean).join('\n\n')
+  return [given, openUserSteps, transcriptSearch].filter(Boolean).join('\n\n')
 }
 
 /**

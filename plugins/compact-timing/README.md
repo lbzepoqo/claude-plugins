@@ -6,7 +6,7 @@ This plugin lets the model choose the moment. The model sets a mark when it fini
 
 ## How it works
 
-The plugin gives the model a tool, `mark`, with two inputs: the state, and a focus that says what the summary must keep. The focus is passed to the compaction as its instructions, together with a request to keep the user's open steps (see below).
+The plugin gives the model a tool, `mark`, with two inputs: the state, and a focus that says what the summary must keep. The focus is passed to the compaction as its instructions, together with a request to keep the user's open steps (see below) and to end the summary with how to search the full transcript (`command grep -oE` with a 200-character window around the term), since Claude Code's own pointer says to read it and its lines are long JSON records.
 
 | Mark | Meaning | The plugin compacts at the end of the turn when the context contains |
 |---|---|---|
