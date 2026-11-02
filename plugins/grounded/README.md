@@ -9,7 +9,7 @@ An output style for Claude Code. Replies open with the answer, keep every figure
 - **Do the work.** When the next step is something Claude can run or read, it does it and reports the result, instead of handing you the step.
 - **Say what was checked.** A cause that was not confirmed is called a hypothesis, with the evidence that would confirm it.
 - **Questions at the end.** Claude takes sensible defaults and says so. Real questions go in a numbered list at the end, each with a recommendation and what it is based on. A decision that is yours comes as a multiple-choice question (AskUserQuestion) with the recommended option first.
-- **Actions up top.** When you have something to do, the reply opens with a `▶ Your move` list. Long replies get a TL;DR.
+- **Everything for you at the bottom.** Long replies open with a TL;DR. The reply ends with one block, where a terminal shows it first: a `▶ Your move` list of what you have to do, answers to the questions you asked during the work, and questions for you. An item you have not answered yet comes back in the next reply's block, so tool output or a compaction cannot bury it.
 - **Plain format.** Full file paths the terminal can open, issues and PRs as full links with a few words on what they are, no em or en dashes.
 
 The full text is in [output-styles/grounded.md](output-styles/grounded.md).
@@ -45,11 +45,11 @@ See [How output styles work](https://code.claude.com/docs/en/output-styles#how-o
 
 ## Cost
 
-The style is about 1,250 words, sent with every request. Prompt caching covers it after the first request of a session.
+The style is about 1,400 words, sent with every request. Prompt caching covers it after the first request of a session.
 
 ## Evals
 
-The [evals](evals) folder has 10 cases: simple questions, figures that must survive, derived figures, an unchecked cause, a correction, defaults over questions, finding a bug with tools, and others.
+The [evals](evals) folder has 11 cases: simple questions, the closing block, figures that must survive, derived figures, an unchecked cause, a correction, defaults over questions, finding a bug with tools, and others.
 
 On Opus 5.5 most cases score near the top with or without the style, since the model already does much of this. The clearest differences were shorter answers to simple questions and file paths written plain instead of in code font.
 
