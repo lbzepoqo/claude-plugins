@@ -24,7 +24,7 @@ These run code inside Claude Code and change how a session behaves: when it comp
 
 | Plugin | What it does | Adds | Model calls |
 |---|---|---|---|
-| [compact-timing](plugins/compact-timing) | Compacts at task boundaries instead of at a fixed token count | A `mark` tool for the model, a toast when a compaction is skipped or fails | None besides the compaction it triggers |
+| [compact-timing](https://github.com/lbzepoqo/compact-timing) | Compacts at task boundaries instead of at a fixed token count | A `mark` tool for the model, a toast when a compaction is skipped or fails | None besides the compaction it triggers |
 | [skill-hints](plugins/skill-hints) | Shows which installed skill fits each prompt you type | Toast, status line, `/skill-hints` pane | One Haiku call per prompt |
 | [secret-guard](plugins/secret-guard) | Hides API keys and private keys before Claude reads them, and blocks credential files and commands that print secrets (fork of arasovic/claude-code-mods) | Status light under the prompt | None |
 | [quality-nudge](plugins/quality-nudge) | Reminds Claude to run code-review after a commit no review saw (30+ code lines, or any guard code) | A note in the commit's tool result | None |
