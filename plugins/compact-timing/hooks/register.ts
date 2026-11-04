@@ -128,7 +128,7 @@ export const contextNoteDue = (tokens: number | undefined, noted: boolean, limit
  */
 export const contextNote = (tokens: number, toolName: string) =>
   [
-    'compact-timing: an automatic note the user does not see.',
+    'compact-timing: an automatic note from a plugin, not written by the user, who does not see it.',
     `- The context holds ${thousands(tokens)} tokens. From now on, when a request starts new work: if it continues the current work, call ${toolName} with \`boundary\` at the next natural break; if it is unrelated and needs nothing from this conversation, suggest a fresh session (/clear or a new terminal); if it is new but needs a few facts from here, suggest a short handoff and then a fresh session. If the current request already starts new work, apply this now. Suggest it at most once; the user decides.`,
   ].join('\n')
 
