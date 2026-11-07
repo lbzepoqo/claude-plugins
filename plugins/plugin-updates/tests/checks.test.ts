@@ -135,6 +135,14 @@ describe('checking against a fake git', () => {
     expect(result.reason).toBe('upstream marketplace.json is not valid JSON')
   })
 
+  test('an unreadable upstream marketplace.json reports the git error', async () => {
+    const failing: Git = async args =>
+      args[2] === 'show' ? { exitCode: 128, stdout: '', stderr: 'fatal: promisor remote failed\nmore' } : fakeGit('{}')(args)
+    const result = await checkPlugin(failing, new Mirrors(failing, '/c'), install, repo)
+    expect(result.status).toBe('unchecked')
+    expect(result.reason).toBe('could not read upstream marketplace.json: fatal: promisor remote failed')
+  })
+
   test('two spellings of one repository clone it once', async () => {
     calls.length = 0
     const git = fakeGit('{}')

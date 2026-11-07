@@ -165,10 +165,13 @@ export class Mirrors {
     if (!dir) return `could not fetch ${repo.url}`
     const tip = await resolveCommit(this.git, dir, repo.ref ?? 'HEAD')
     if (!tip) return `marketplace ${repo.ref ?? 'default branch'} not found upstream`
-    const text = await readAt(this.git, dir, tip, repo.file)
-    if (text === undefined) return 'marketplace.json not found upstream'
+    const shown = await this.git(['-C', dir, 'show', `${tip}:${repo.file}`])
+    if (shown.exitCode !== 0) {
+      const gitError = shown.stderr.trim().split('\n')[0]?.slice(0, 200) || `exit ${shown.exitCode}`
+      return `could not read upstream marketplace.json: ${gitError}`
+    }
     try {
-      return { dir, tip, listing: JSON.parse(text) as Listing }
+      return { dir, tip, listing: JSON.parse(shown.stdout) as Listing }
     } catch {
       return 'upstream marketplace.json is not valid JSON'
     }
