@@ -1,0 +1,25 @@
+{
+  "name": "session-search",
+  "version": "0.1.0",
+  "description": "Gives Claude a search over your past Claude Code sessions: it greps the raw transcripts on demand, with no index, no model calls and nothing added at session start",
+  "author": {
+    "name": "lbzepoqo",
+    "url": "https://github.com/lbzepoqo"
+  },
+  "repository": "https://github.com/lbzepoqo/claude-plugins",
+  "license": "MIT",
+  "userConfig": {
+    "extraRoots": {
+      "type": "string",
+      "title": "Extra transcript folders",
+      "description": "More folders of session transcripts besides this install's own projects folder, separated by ;. For example another OS's: /mnt/c/Users/<you>/.claude/projects from WSL, or \\\\wsl.localhost\\Ubuntu\\home\\<you>\\.claude\\projects from Windows",
+      "default": ""
+    },
+    "loadTools": {
+      "type": "boolean",
+      "title": "Load tools up front",
+      "description": "Put both tools in every request's tool list instead of behind tool search (about 500 tokens per request instead of about 50)",
+      "default": false
+    }
+  }
+}
