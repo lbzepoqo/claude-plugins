@@ -38,6 +38,17 @@ test('a query is terms, quoted phrases or a /regex/, spelled for the raw JSON li
   expect(regex.prefilter).toEqual({ fixed: false, patterns: ['deploy(ed|ing)'] })
   expect(parseQuery('  ')).toBe('query is empty')
   expect(parseQuery('/(/')).toContain('not a valid regex')
+  // A path with slashes inside is words, not a regex; an escaped slash keeps a regex.
+  expect(query('/opt/app(v2)/')).toEqual({ label: '/opt/app(v2)/', terms: ['/opt/app(v2)/'], prefilter: { fixed: true, patterns: ['/opt/app(v2)/'] } })
+  expect(query('/a\\/b/').regex?.test('a/b')).toBe(true)
+})
+
+test('a Windows path in a tool input is found as typed', () => {
+  const sessions = new Map<string, SessionHit>()
+  const opts = options('C:\\Users\\me\\notes\\TODO.md')
+  collect(sessions, '/r/p/s1.jsonl', assistant([{ type: 'tool_use', name: 'Read', input: { file_path: 'C:\\Users\\me\\notes\\TODO.md' } }]), opts)
+  expect(ranked(sessions, opts.query).map(session => session.id)).toEqual(['s1'])
+  expect(sessions.get('s1')?.snippets[0]?.text).toBe('C:\\Users\\me\\notes\\TODO.md')
 })
 
 test('only user and assistant messages are parsed; API logs are skipped unread', () => {
@@ -47,7 +58,7 @@ test('only user and assistant messages are parsed; API logs are skipped unread',
   const record = parseRecord(assistant([{ type: 'thinking', thinking: 'hm' }, { type: 'text', text: 'Done.' }, { type: 'tool_use', name: 'Bash', input: { command: 'nft list ruleset' } }]))
   expect(record?.entries).toEqual([
     { role: 'assistant', text: 'Done.' },
-    { role: 'tool', name: 'Bash', text: 'nft list ruleset' },
+    { role: 'tool', name: 'Bash', text: 'nft list ruleset', summary: 'nft list ruleset' },
   ])
   expect(parseRecord(user([{ type: 'tool_result', content: [{ type: 'text', text: 'table inet' }] }]))?.entries).toEqual([{ role: 'result', text: 'table inet' }])
 })
@@ -87,9 +98,9 @@ test('project, since and the subagent file narrow and group the hits', () => {
 })
 
 test('a project is a path prefix in either spelling, or a name anywhere in the path', () => {
-  expect(matchesProject('C:\\Users\\me\\hq', 'c:/users/me')).toBe(true)
-  expect(matchesProject('C:\\Users\\me\\hq', 'C:\\Users\\m')).toBe(false)
-  expect(matchesProject('/home/me/projects/squad/fobkeep', 'fobkeep')).toBe(true)
+  expect(matchesProject('C:\\Users\\me\\notes', 'c:/users/me')).toBe(true)
+  expect(matchesProject('C:\\Users\\me\\notes', 'C:\\Users\\m')).toBe(false)
+  expect(matchesProject('/home/me/projects/games/app', 'app')).toBe(true)
   expect(matchesProject('/home/me/x', undefined)).toBe(true)
 })
 
@@ -112,6 +123,11 @@ test('a snippet is about 200 characters around the match, whitespace folded, sec
   const token = fakeToken()
   expect(snippet(`deploy with token ${token} today`, query('deploy'))).toBe(`deploy with token ${tag('github-token')} today`)
   expect(snippet(`the key is ${token}`, query(token))).toBe(undefined)
+  // A megabyte tool result: only whole lines near the match are scrubbed; a secret there is still hidden.
+  const big = `${'x'.repeat(1_000_000)}\nhere ${token} nftables\n${'y'.repeat(1_000_000)}`
+  const near = snippet(big, query('nftables'))!
+  expect(near).toContain(`here ${tag('github-token')} nftables`)
+  expect(near.startsWith('…')).toBe(true)
 })
 
 test('redaction keeps the name and hides the value', () => {
@@ -141,7 +157,7 @@ test('results are grouped by session with id, dates, folder, title and timestamp
   expect(text).toContain('Title: open the port')
   expect(text).toContain('[2026-11-08T10:00:00.000Z user] open the nftables port')
   expect(text).toContain('[2026-11-09T08:00:00.000Z tool Bash] sudo nftables-restore')
-  expect(renderResults([], 0, query('zzz'), { files: 3, ms: 10, includeResults: true, tool: 'grep', problems: ['/x (not found)'] })).toBe('No session matches zzz (3 transcripts in 0.0 s with grep).\n\nNot searched: /x (not found)')
+  expect(renderResults([], 0, query('zzz'), { ms: 10, includeResults: true, tool: 'grep', problems: ['/x (not found)'] })).toBe('No session matches zzz (searched in 0.0 s with grep).\n\nNot searched: /x (not found)')
 })
 
 test('read_session anchors on a timestamp prefix or the longest plain piece of a snippet', () => {
@@ -201,6 +217,7 @@ test('a subagent transcript leads to its session file in the same spelling', () 
 
 test('the commands are the same search for rg and grep', () => {
   expect(prefilterArgv('rg', true, ['a', 'b'], ['/r'])).toContain('-F')
+  expect(prefilterArgv('rg', false, ['(?<!re)deploy'], ['/r']).join(' ')).toContain('--engine auto')
   expect(prefilterArgv('grep', false, ['a(b)'], ['/r'])).toEqual(['grep', '-a', '-r', '-s', '-Z', '-H', '-i', '-P', '--include=*.jsonl', '-e', 'a(b)', '--', '/r'])
   expect(contextArgv('grep', 'x', 40, ['/r/s1.jsonl'])).toContain('-C')
 })

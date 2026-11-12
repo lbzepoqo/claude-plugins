@@ -19,7 +19,8 @@ export const jsonEscape = (text: string) => JSON.stringify(text).slice(1, -1)
 export const parseQuery = (raw: unknown): Query | string => {
   const text = typeof raw === 'string' ? raw.trim() : ''
   if (!text) return 'query is empty'
-  const slashed = /^\/(.+)\/$/s.exec(text)
+  // `/x/` is a regex only without another unescaped slash inside: `/etc/nginx/` is a path, searched as a word.
+  const slashed = /^\/((?:[^/\\]|\\.)+)\/$/s.exec(text)
   if (slashed?.[1]) {
     try {
       return { label: text, terms: [], regex: new RegExp(slashed[1], 'i'), prefilter: { fixed: false, patterns: [slashed[1]] } }
@@ -38,6 +39,8 @@ export type Entry = {
   /** The tool's name, for `tool`. */
   name?: string
   text: string
+  /** For `tool`: the command, path or pattern read_session shows. */
+  summary?: string
 }
 
 export type TranscriptRecord = {
@@ -59,10 +62,29 @@ const resultText = (content: unknown): string => {
   return content.map(block => (typeof (block as Block)?.text === 'string' ? (block as Block).text : '')).filter(Boolean).join('\n')
 }
 
-/** The searchable text of a tool input: the command when there is one, else the input as JSON. */
+const stringsIn = (value: unknown, found: string[] = []): string[] => {
+  if (typeof value === 'string') found.push(value)
+  else if (Array.isArray(value)) for (const item of value) stringsIn(item, found)
+  else if (value && typeof value === 'object') for (const item of Object.values(value)) stringsIn(item, found)
+  return found
+}
+
+/**
+ * The searchable text of a tool input: the command when there is one, else its string values as written. Not its JSON:
+ * there a Windows path has doubled backslashes, which a query term does not.
+ */
 export const toolInputText = (input: unknown): string => {
   if (input && typeof input === 'object' && typeof (input as { command?: unknown }).command === 'string') return (input as { command: string }).command
-  return JSON.stringify(input ?? {})
+  return stringsIn(input).join(' · ')
+}
+
+/** A tool input for display: the command, path or pattern it names, else its searchable text. */
+export const toolSummary = (input: unknown): string => {
+  if (input && typeof input === 'object') {
+    const fields = input as Record<string, unknown>
+    for (const key of ['command', 'file_path', 'path', 'pattern', 'query', 'url', 'description', 'prompt']) if (typeof fields[key] === 'string') return fields[key] as string
+  }
+  return toolInputText(input)
 }
 
 /** One line of a transcript, or undefined when it is not a user or assistant message (titles, API logs, attachments). */
@@ -84,7 +106,7 @@ export const parseRecord = (line: string): TranscriptRecord | undefined => {
   const blocks: Block[] = typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : []
   for (const block of blocks) {
     if (block?.type === 'text' && typeof block.text === 'string') entries.push({ role: type, text: block.text })
-    else if (block?.type === 'tool_use') entries.push({ role: 'tool', name: typeof block.name === 'string' ? block.name : 'tool', text: toolInputText(block.input) })
+    else if (block?.type === 'tool_use') entries.push({ role: 'tool', name: typeof block.name === 'string' ? block.name : 'tool', text: toolInputText(block.input), summary: toolSummary(block.input) })
     else if (block?.type === 'tool_result') entries.push({ role: 'result', text: resultText(block.content) })
   }
   return {
@@ -99,6 +121,11 @@ export const parseRecord = (line: string): TranscriptRecord | undefined => {
 
 /** Text Claude Code adds inside a user's turn: reminders and the output of local commands. */
 const ADDED_TEXT = /<(system-reminder|local-command-stdout|local-command-caveat)>[\s\S]*?<\/\1>/g
+/** The same, plus a slash command's own message and arguments, which a title leaves out too. */
+const ADDED_OR_COMMAND_TEXT = /<(system-reminder|local-command-stdout|local-command-caveat|command-message|command-args)>[\s\S]*?<\/\1>/g
+
+/** The session id a transcript's file name holds: `<dir>/<id>.jsonl` → `<id>`. */
+export const sessionIdFromPath = (file: string) => file.replace(/^.*[\\/]/, '').replace(/\.jsonl$/, '')
 
 /**
  * The entries a search looks at: no text Claude Code wrote into the user's turn (meta records, and reminders and command
@@ -137,19 +164,32 @@ export const termsIn = (text: string, query: Query): string[] => {
 
 const flatten = (text: string) => text.replace(/\s+/g, ' ').trim()
 
+/** How far past the snippet's edges the text is scrubbed: longer than any secret the rules know. */
+const SCRUB_MARGIN = 2000
+
 /**
- * About `width` characters around the first match, secrets hidden. The whole text is scrubbed before it is cut, so a
- * key cut in half at the edge cannot slip past the rules. Undefined when the match was itself a secret.
+ * About `width` characters around the first match, secrets hidden. The text is scrubbed before it is cut, so a key cut
+ * in half at the edge cannot slip past the rules; only a window of SCRUB_MARGIN around the match, since a tool result
+ * can be megabytes. Undefined when the match was itself a secret.
  */
 export const snippet = (text: string, query: Query, width = 200): string | undefined => {
-  const clean = scrub(text)
+  const raw = findIn(text, query)
+  if (!raw) return undefined
+  const from = Math.max(0, raw.index - SCRUB_MARGIN)
+  const to = Math.min(text.length, raw.index + raw.length + SCRUB_MARGIN)
+  // A window that starts mid-line would hide a .env line's start from its rule; widen it to whole lines.
+  const lineStart = from > 0 ? text.lastIndexOf('\n', from) + 1 : 0
+  const lineEnd = to < text.length ? (text.indexOf('\n', to) + 1 || text.length) : text.length
+  const clean = scrub(text.slice(lineStart, lineEnd))
   const found = findIn(clean, query)
   if (!found) return undefined
   const room = Math.max(0, width - found.length)
   let start = Math.max(0, found.index - Math.floor(room / 2))
   const end = Math.min(clean.length, start + Math.max(width, found.length))
   start = Math.max(0, Math.min(start, end - width))
-  return `${start > 0 ? '…' : ''}${flatten(clean.slice(start, end))}${end < clean.length ? '…' : ''}`
+  const isCutBefore = start > 0 || lineStart > 0
+  const isCutAfter = end < clean.length || lineEnd < text.length
+  return `${isCutBefore ? '…' : ''}${flatten(clean.slice(start, end))}${isCutAfter ? '…' : ''}`
 }
 
 /** Normalized for comparing paths from either OS: forward slashes, no trailing slash, lowercase. */
@@ -200,7 +240,7 @@ const MAX_SNIPPETS = 3
 export const collect = (sessions: Map<string, SessionHit>, file: string, line: string, options: SearchOptions): void => {
   const record = parseRecord(line)
   if (!record) return
-  const id = record.sessionId || file.replace(/^.*[\\/]/, '').replace(/\.jsonl$/, '')
+  const id = record.sessionId || sessionIdFromPath(file)
   if (id === options.exclude) return
   if (!matchesProject(record.cwd, options.project)) return
   if (options.since !== undefined && !(Date.parse(record.timestamp) >= options.since)) return
@@ -243,7 +283,7 @@ export const titleFrom = (lines: Iterable<string>): string | undefined => {
     const text = record.entries.find(entry => entry.role === 'user')?.text
     if (!text) continue
     // Scrubbed before it is flattened and cut: the .env rule needs its line starts, and a cut key is too short to match.
-    const flat = flatten(scrub(text.replace(/<(command-message|command-args|local-command-stdout|local-command-caveat|system-reminder)>[\s\S]*?<\/\1>/g, ' ')))
+    const flat = flatten(scrub(text.replace(ADDED_OR_COMMAND_TEXT, ' ')))
     if (!flat || /^<command-name>/.test(flat)) continue
     return flat
   }
@@ -261,9 +301,10 @@ export const renderResults = (
   shown: Rendered[],
   total: number,
   query: Query,
-  stats: { files: number; ms: number; includeResults: boolean; tool: string; problems: string[] },
+  stats: { files?: number; ms: number; includeResults: boolean; tool: string; problems: string[] },
 ): string => {
-  const scope = `${stats.files} transcripts in ${(stats.ms / 1000).toFixed(1)} s with ${stats.tool}${stats.includeResults ? '' : ', tool results not searched'}`
+  // rg counts the files it read; grep does not, and a second pass to count them costs as much as the search.
+  const scope = `${stats.files !== undefined ? `${stats.files} transcripts` : 'searched'} in ${(stats.ms / 1000).toFixed(1)} s with ${stats.tool}${stats.includeResults ? '' : ', tool results not searched'}`
   const head = total
     ? `${total} session${total === 1 ? '' : 's'} match ${query.label} (${scope})${total > shown.length ? `; the ${shown.length} with the newest matches shown` : ''}.`
     : `No session matches ${query.label} (${scope}).`
@@ -304,7 +345,7 @@ export const renderRecord = (record: TranscriptRecord, cap = 300): string | unde
     .filter(entry => entry.role !== 'result')
     // Each part scrubbed as written, before the tool name goes in front and its lines are folded: the .env rule needs its
     // line starts.
-    .map(entry => (entry.role === 'tool' ? `${entry.name}: ${flatten(scrub(toolSummary(entry.text)))}` : flatten(scrub(entry.text))))
+    .map(entry => (entry.role === 'tool' ? `${entry.name}: ${flatten(scrub(entry.summary ?? entry.text))}` : flatten(scrub(entry.text))))
     .filter(part => part && !part.endsWith(': '))
   if (!parts.length) return undefined
   const role = record.entries.some(entry => entry.role === 'user') ? 'user' : 'assistant'
@@ -315,18 +356,6 @@ export const renderRecord = (record: TranscriptRecord, cap = 300): string | unde
 export const renderLine = (line: string): string | undefined => {
   const record = parseRecord(line)
   return record ? renderRecord(record) : undefined
-}
-
-/** A tool input for display: the command, path or pattern it names, else its JSON. */
-const toolSummary = (text: string): string => {
-  if (!text.startsWith('{')) return text
-  try {
-    const input = JSON.parse(text) as Record<string, unknown>
-    for (const key of ['file_path', 'path', 'pattern', 'query', 'url', 'description', 'prompt']) if (typeof input[key] === 'string') return input[key] as string
-  } catch {
-    // Not JSON after all: shown as it is.
-  }
-  return text
 }
 
 /** Lines with their numbers, from `rg`/`grep -n --null` output: `path\0N:line` for a match, `path\0N-line` for context. */

@@ -9,6 +9,7 @@ import {
   ranked,
   renderLine,
   renderResults,
+  sessionIdFromPath,
   titleFrom,
   type Rendered,
   type SessionHit,
@@ -60,7 +61,8 @@ type Searcher = 'rg' | 'grep'
 export const prefilterArgv = (searcher: Searcher, fixed: boolean, patterns: string[], roots: string[]): string[] => {
   const each = patterns.flatMap(pattern => ['-e', pattern])
   return searcher === 'rg'
-    ? ['rg', '--no-config', '-a', '--no-ignore', '--hidden', '--no-messages', '--stats', '--null', '--with-filename', '--no-line-number', '--no-heading', '--color', 'never', '-i', ...(fixed ? ['-F'] : []), '-g', '*.jsonl', ...each, '--', ...roots]
+    ? // A regex: `--engine auto` switches to PCRE2 for lookaround and backreferences, as grep -P takes them.
+      ['rg', '--no-config', '-a', '--no-ignore', '--hidden', '--no-messages', '--stats', '--null', '--with-filename', '--no-line-number', '--no-heading', '--color', 'never', '-i', ...(fixed ? ['-F'] : ['--engine', 'auto']), '-g', '*.jsonl', ...each, '--', ...roots]
     : ['grep', '-a', '-r', '-s', '-Z', '-H', '-i', fixed ? '-F' : '-P', '--include=*.jsonl', ...each, '--', ...roots]
 }
 
@@ -81,6 +83,12 @@ const searcher = ($: EngineInterface) =>
     }
     return undefined
   })())
+
+const requireSearcher = async ($: EngineInterface): Promise<Searcher> => {
+  const tool = await searcher($)
+  if (!tool) throw new Error('neither rg (ripgrep) nor grep runs here; install ripgrep')
+  return tool
+}
 
 /**
  * Runs a command and hands its standard output over line by line. `onLine` returning false ends the loop, which kills
@@ -132,19 +140,9 @@ async function transcriptRoots($: EngineInterface, extraRoots: string[]) {
     const exists = await $.fs.exists(root).catch(() => true)
     ;(exists ? found : missing).push(root)
   }
+  // With no root, rg and grep would search the working directory instead.
+  if (!found.length) throw new Error(`no transcript folder found: ${missing.join(', ') || 'no home or CLAUDE_CONFIG_DIR'}`)
   return { roots: found, missing }
-}
-
-/**
- * How many transcripts the search read: rg's `--stats`, or for grep its own list of the files over the same roots (it
- * reads one line of each). Not `find`: on Windows that name is FIND.EXE, a text search.
- */
-const countFiles = async ($: EngineInterface, roots: string[]) => {
-  let count = 0
-  await eachLine($, ['grep', '-a', '-r', '-s', '-l', '-m', '1', '--include=*.jsonl', '-e', '', '--', ...roots], () => {
-    count++
-  }).catch(() => undefined)
-  return count
 }
 
 async function searchSessions($: EngineInterface, input: Record<string, unknown>, extraRoots: string[]): Promise<string> {
@@ -155,15 +153,12 @@ async function searchSessions($: EngineInterface, input: Record<string, unknown>
   if (Number.isNaN(since)) throw new Error(`since "${String(input.since)}" is neither an ISO date nor 7d / 12h`)
   const limit = countOption(input.limit, 10, 50)
   const includeResults = input.includeResults === true
-  const tool = await searcher($)
-  if (!tool) throw new Error('neither rg (ripgrep) nor grep runs here; install ripgrep')
+  const tool = await requireSearcher($)
   const [{ roots, missing }, exclude] = await Promise.all([transcriptRoots($, extraRoots), $.session.id()])
   const problems = missing.map(root => `${root} (not found)`)
-  if (!roots.length) throw new Error(`no transcript folder found: ${missing.join(', ')}`)
   const options = { query, project: typeof input.project === 'string' ? input.project : undefined, since, includeResults, exclude }
   const sessions = new Map<string, SessionHit>()
-  let files = 0
-  const filesCounted = tool === 'grep' ? countFiles($, roots) : undefined
+  let files: number | undefined
   const outcome = await eachLine($, prefilterArgv(tool, query.prefilter.fixed, query.prefilter.patterns, roots), line => {
     const nul = line.indexOf('\0')
     if (nul < 0) {
@@ -178,7 +173,6 @@ async function searchSessions($: EngineInterface, input: Record<string, unknown>
     if (!query.prefilter.fixed) throw new Error(`${tool} rejected the regex${reason ? `: ${reason}` : ''}`)
     if (reason) problems.push(reason)
   }
-  if (filesCounted) files = await filesCounted
   const all = ranked(sessions, query)
   // Titles 8 at a time: up to 50 children at once over a network share would crowd it.
   const shown: Rendered[] = []
@@ -215,18 +209,15 @@ async function locate($: EngineInterface, tool: Searcher, id: string, roots: str
   return files
 }
 
-const sessionName = (file: string) => file.replace(/^.*[\\/]/, '').replace(/\.jsonl$/, '')
-
 async function readSession($: EngineInterface, input: Record<string, unknown>, extraRoots: string[]): Promise<string> {
   const id = typeof input.id === 'string' ? input.id.trim() : ''
   if (!/^[0-9a-f][0-9a-f-]{7,35}$/i.test(id)) throw new Error('id must be a session id from search_sessions (at least its first 8 characters)')
   const count = countOption(input.count, 5, 20)
   const around = typeof input.around === 'string' ? input.around.trim() : ''
-  const tool = await searcher($)
-  if (!tool) throw new Error('neither rg (ripgrep) nor grep runs here; install ripgrep')
+  const tool = await requireSearcher($)
   const { roots } = await transcriptRoots($, extraRoots)
   const files = await locate($, tool, id, roots)
-  const names = [...new Set(files.map(sessionName))]
+  const names = [...new Set(files.map(sessionIdFromPath))]
   if (!files.length) throw new Error(`no transcript named ${id}*.jsonl under ${roots.join(', ')}`)
   if (names.length > 1) throw new Error(`the id matches ${names.length} sessions (${names.slice(0, 5).join(', ')}); give more of it`)
   const file = files[0]!
@@ -264,7 +255,7 @@ async function readSession($: EngineInterface, input: Record<string, unknown>, e
     const target = byFile.has(file) ? file : [...byFile.keys()][0]!
     const lines = byFile.get(target)!
     const anchor = lines.find(line => line.isMatch)?.number ?? lines[0]!.number
-    const where = target === file ? '' : ` · in subagent transcript ${sessionName(target)}`
+    const where = target === file ? '' : ` · in subagent transcript ${sessionIdFromPath(target)}`
     const shown = nearby(lines, anchor, count)
     if (!shown.length) continue
     // A timestamp found only by a shorter prefix lands on the first record of that minute, hour or day: say so.
@@ -279,14 +270,16 @@ const message = (error: unknown) => (error instanceof Error ? error.message : St
 
 export const register: Register = (on, options) => {
   const extraRoots = rootsOption(options.extraRoots)
-  const isDeferred = options.loadTools === true ? false : undefined
+  // A value set through `--values-stdin` can arrive as the text "true".
+  const isLoaded = options.loadTools === true || options.loadTools === 'true'
+  const loading = isLoaded ? { isDeferred: false } : {}
   let searchTool = 'mcp__session-search__search_sessions'
   let readTool = 'mcp__session-search__read_session'
 
   on('session.start', async ($, e, next) => {
     const [search, read] = await Promise.all([
-      $.tool.register({ name: 'search_sessions', description: SEARCH_DESCRIPTION, inputSchema: searchSchema, ...(isDeferred === false ? { isDeferred } : {}) }),
-      $.tool.register({ name: 'read_session', description: READ_DESCRIPTION, inputSchema: readSchema, ...(isDeferred === false ? { isDeferred } : {}) }),
+      $.tool.register({ name: 'search_sessions', description: SEARCH_DESCRIPTION, inputSchema: searchSchema, ...loading }),
+      $.tool.register({ name: 'read_session', description: READ_DESCRIPTION, inputSchema: readSchema, ...loading }),
     ])
     searchTool = search.tool
     readTool = read.tool
