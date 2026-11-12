@@ -31,6 +31,7 @@ These run code inside Claude Code and change how a session behaves: when it comp
 | [topic-nudge](plugins/topic-nudge) | Reminds you to `/clear` when a prompt starts a different topic | Toast | One Haiku call per prompt after the first |
 | [memory-hints](plugins/memory-hints) | Points Claude to the saved memory notes that match each prompt you type | A note in the prompt's context | None |
 | [plugin-updates](plugins/plugin-updates) | Tells you when installed plugins or copied skills fall behind upstream, without updating them | Status line, toast, `/plugin-updates` list | None |
+| [session-search](plugins/session-search) | Lets Claude search and read your past sessions' transcripts, with no index | `search_sessions` and `read_session` tools for the model | None |
 
 ## Install
 

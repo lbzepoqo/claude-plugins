@@ -50,6 +50,11 @@
       "name": "plugin-updates",
       "source": "./plugins/plugin-updates",
       "description": "Tells you when installed plugins or copied skills are behind upstream, without updating them: a status line, one toast per news, and a /plugin-updates list of the missing commits"
+    },
+    {
+      "name": "session-search",
+      "source": "./plugins/session-search",
+      "description": "Gives Claude a search over your past Claude Code sessions: it greps the raw transcripts on demand, with no index, no model calls and nothing added at session start"
     }
   ]
 }
