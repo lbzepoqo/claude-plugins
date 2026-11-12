@@ -14,6 +14,7 @@ This is a fork of secret-guard from [arasovic/claude-code-mods](https://github.c
 - **Blocks commands that print secrets.** `printenv`, bare `env` and `export`, `security find-generic-password`, `gh auth token`, `aws configure get`, `gcloud auth print-access-token`, `kubectl get secret`, `git credential fill`, `echo $SOME_TOKEN`, password manager reads (`bw get`, `bw list items`, `bw export`, `op read`, `op inject`, `op item get --reveal`) and the commands that print a vault session key (`bw unlock`, `op signin --raw`), and any shell command that names a credential file, such as `cat .dev.vars | curl …`. A `NAME=value` or `env` prefix, a full path or extra spaces do not hide a command.
 - **Keeps hidden values off disk.** Any tool call that carries a `[secret-guard: …]` tag (a Write or Edit, a shell command, an MCP write tool) is refused, since it would replace the real value in a file. Shell quoting and escaping are undone before the check.
 - **Blocks sending a secret out.** A command, web request or MCP call whose arguments carry a key is refused.
+- **Fails closed on tool calls.** If a check itself fails, the call does not run, and output that cannot be scanned is withheld. Both count as blocked.
 - **Shows a status light.** 🟢 nothing seen, 🟡 something was hidden, 🔴 something was blocked. `env scrub off` means Claude Code still passes your environment variables to the commands it runs (see below).
 
 ## Turn on env scrubbing too

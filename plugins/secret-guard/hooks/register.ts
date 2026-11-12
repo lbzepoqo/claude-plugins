@@ -278,8 +278,35 @@ export const statusText = (t: typeof tally) => {
   return `${light} secrets: ${parts.filter(Boolean).join(', ')}${t.scrubOff ? ' · env scrub off' : ''}`
 }
 
+// The status light is a nicety: a host that refuses it must not fail the hook, since a failed hook is skipped.
 function show($: EngineInterface) {
-  $.ui.status(statusText(tally))
+  try {
+    $.ui.status(statusText(tally))
+  } catch {
+    // no status line here
+  }
+}
+
+const deny = ($: EngineInterface, reason: string, hint = READ_HINT) => {
+  tally.blocked++
+  show($)
+  return { deny: `secret-guard: ${reason}. ${hint}` }
+}
+
+const FAILED_HINT = 'Do not try another way to run it. Ask the user to run the step and share only what is safe.'
+const RAN_HINT = 'The tool did run, so do not run it again. Ask the user to check its output and share only what is safe.'
+
+type ToolOutcome = { deny?: string; isError?: boolean; result?: unknown; context?: string[] }
+
+// Error results are left to session.append, which scrubs every stored row.
+function scrubOutcome<O extends ToolOutcome>($: EngineInterface, ran: O): O | { result: unknown; context: O['context'] } {
+  if (ran.deny !== undefined || ran.isError) return ran
+  const found: string[] = []
+  const result = scrubDeep(ran.result, found)
+  if (found.length === 0) return ran
+  tally.hidden += found.length
+  show($)
+  return { result, context: ran.context }
 }
 
 export const register: Register = on => {
@@ -292,35 +319,36 @@ export const register: Register = on => {
 
   on('tool.call', async ($, e, next) => {
     const args = e as Record<string, unknown>
-    const deny = (reason: string, hint = READ_HINT) => {
-      tally.blocked++
-      show($)
-      return { deny: `secret-guard: ${reason}. ${hint}` }
-    }
 
     const pathKey = FILE_TOOLS[e.tool]
     const path = pathKey ? args[pathKey] : undefined
     if (typeof path === 'string') {
-      if (sensitivePath(path, home)) return deny(`${path} is a credential file`)
+      if (sensitivePath(path, home)) return deny($, `${path} is a credential file`)
       const real = (await $.fs.stat(path, { resolve: true }).catch(() => undefined))?.realPath
-      if (real && sensitivePath(real, home)) return deny(`${path} leads to a credential file`)
+      if (real && sensitivePath(real, home)) return deny($, `${path} leads to a credential file`)
     }
     if (e.tool === 'Bash' && typeof args.command === 'string') {
       const reason = secretCommand(args.command, home)
-      if (reason) return deny(reason)
+      if (reason) return deny($, reason)
     }
-    if (!LOCAL_WRITES.has(e.tool) && scrub(JSON.stringify(args)).rules.length > 0) return deny('this call would send a secret', SEND_HINT)
+    if (!LOCAL_WRITES.has(e.tool) && scrub(JSON.stringify(args)).rules.length > 0) return deny($, 'this call would send a secret', SEND_HINT)
     // Any tool can write a file (a shell redirect, an MCP write tool), and would put the tag on disk in place of the value.
-    if (writesPlaceholder(args)) return deny('this call carries a hidden-value tag', WRITE_HINT)
+    if (writesPlaceholder(args)) return deny($, 'this call carries a hidden-value tag', WRITE_HINT)
 
+    return scrubOutcome($, await next(e))
+  }).catch(async ($, e, next) => {
+    // The engine skips a hook that fails, so without this a crash in a check would let the call run unchecked.
+    if (!next.called) return deny($, `the check of this ${e.tool} call failed (${next.error.kind}), so it did not run`, FAILED_HINT)
+    // Replayed: what the tool settled to, nothing runs again. A rejection passes through as the engine's own error.
     const ran = await next(e)
-    if (ran.deny !== undefined || ran.isError) return ran
-    const found: string[] = []
-    const result = scrubDeep(ran.result, found)
-    if (found.length === 0) return ran
-    tally.hidden += found.length
-    show($)
-    return { result, context: ran.context }
+    const withheld = () => deny($, `the ${e.tool} output could not be scanned for secrets (${next.error.kind}), so it was withheld`, RAN_HINT)
+    // A scan that overran the hook's budget would overrun this handler's shorter grace too, and past it the raw output stands.
+    if (next.error.kind === 'timeout') return withheld()
+    try {
+      return scrubOutcome($, ran)
+    } catch {
+      return withheld()
+    }
   })
 
   // Every other row: prompts the person pastes, model output, attachments, compaction summaries, error results.

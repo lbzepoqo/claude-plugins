@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { scrub, scrubDeep, secretCommand, sensitivePath, statusText, writesPlaceholder } from '../hooks/register'
+import { register, scrub, scrubDeep, secretCommand, sensitivePath, statusText, writesPlaceholder } from '../hooks/register'
 
 // Synthetic values, built so this file holds no literal that a scanner flags.
 const AWS = 'AKIA' + 'ABCDEFGHIJKLMNOP'
@@ -303,4 +303,41 @@ test('the status line shows the worst thing that happened', () => {
   expect(statusText({ hidden: 0, blocked: 0, scrubOff: false })).toBe('🟢 secrets: none seen')
   expect(statusText({ hidden: 2, blocked: 0, scrubOff: true })).toBe('🟡 secrets: 2 hidden · env scrub off')
   expect(statusText({ hidden: 0, blocked: 1, scrubOff: false })).toBe('🔴 secrets: none seen, 1 blocked')
+})
+
+// A fake engine: collects each hook and its .catch handler, as the engine would run them.
+function hooks() {
+  const found: Record<string, { hook: Function; handler?: Function }> = {}
+  const on = (event: string, hook: Function) => {
+    found[event] = { hook }
+    return { catch: (handler: Function) => { found[event].handler = handler } }
+  }
+  register(on as never, {} as never)
+  const engine = { ui: { status: () => { throw new Error('no status line') } }, fs: { stat: async () => undefined }, env: { get: async () => undefined } }
+  return { toolCall: found['tool.call'], engine }
+}
+
+test('a check that fails denies the call instead of letting it run unchecked', async () => {
+  const { toolCall, engine } = hooks()
+  const next = Object.assign(async () => ({ result: 'never ran' }), { called: false, error: { kind: 'throw' } })
+  const outcome = await toolCall.handler!(engine, { tool: 'Bash', command: 'ls' }, next)
+  expect(outcome.deny).toContain('did not run')
+})
+
+test('output that cannot be scanned is withheld, and output the replay can scan is scrubbed', async () => {
+  const { toolCall, engine } = hooks()
+  const unreadable = { get text(): string { throw new Error('unreadable') } }
+  const failedNext = Object.assign(async () => ({ result: unreadable }), { called: true, error: { kind: 'throw' } })
+  expect((await toolCall.handler!(engine, { tool: 'Read', file_path: 'a.txt' }, failedNext)).deny).toContain('withheld')
+  const replayNext = Object.assign(async () => ({ result: `key ${AWS}` }), { called: true, error: { kind: 'throw' } })
+  expect((await toolCall.handler!(engine, { tool: 'Read', file_path: 'a.txt' }, replayNext)).result).toBe(`key ${tag('aws-key')}`)
+  const timedOutNext = Object.assign(async () => ({ result: `key ${AWS}` }), { called: true, error: { kind: 'timeout' } })
+  expect((await toolCall.handler!(engine, { tool: 'Read', file_path: 'a.txt' }, timedOutNext)).deny).toContain('withheld')
+})
+
+test('a status line the host refuses does not fail the hook', async () => {
+  const { toolCall, engine } = hooks()
+  const keyFile = [HOME, '.ssh', 'id' + '_rsa'].join('/')
+  const outcome = await toolCall.hook(engine, { tool: 'Read', file_path: keyFile }, async () => ({ result: 'x' }))
+  expect(outcome.deny).toContain('credential file')
 })
