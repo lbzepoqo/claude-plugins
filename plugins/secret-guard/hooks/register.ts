@@ -354,10 +354,85 @@ export const register: Register = on => {
   // Every other row: prompts the person pastes, model output, attachments, compaction summaries, error results.
   on('session.append', ($, e, next) => {
     const found: string[] = []
-    const content = scrubDeep(e.message.content, found)
+    const content = scrubBlocks(e.message.content, found)
     if (found.length === 0) return next(e)
     tally.hidden += found.length
     show($)
     return next({ ...e, message: { ...e.message, content } })
+  }).catch(async ($, e, next) => {
+    // Once called, a replay is all next can do: the row was stored as scrubbed, or the engine's refusal passes through.
+    if (next.called) return next(e)
+    // Only a plugin's own append can be refused, so any other row that could not be scanned keeps its place with a notice.
+    if (e.door === 'note') return deny($, 'could not scan this note for secrets, so it was not stored', 'Append it again in smaller pieces.')
+    const content = withheldContent(e.message.content, e.door)
+    if (content === undefined) return next(e) // nothing in it a hook may change
+    const stored = await next({ ...e, message: { ...e.message, content } })
+    tally.blocked++
+    show($)
+    return stored
   })
+}
+
+type ContentBlock = { type: string; [field: string]: unknown }
+
+// A hook may rewrite text blocks and a tool_result's content, and drop media; the engine puts every other kind back.
+const MEDIA = new Set(['image', 'document'])
+const isBlock = (block: unknown): block is ContentBlock => typeof block === 'object' && block !== null
+const isMedia = (block: ContentBlock) => MEDIA.has(block.type) || isBinary(block)
+const isBinary = (block: ContentBlock) => (block.source as { type?: unknown } | undefined)?.type === 'base64'
+const REMOVED = '[secret-guard: an attachment holding a secret was removed]'
+
+// Scans only what a hook can change. Media cannot be changed, so one that holds a key (in its text, URL, title or
+// context) is replaced by a marker; base64 data holds no readable key and is not scanned.
+export const scrubBlocks = (blocks: ContentBlock[], found: string[]): ContentBlock[] =>
+  blocks.map((block): ContentBlock => {
+    if (!isBlock(block)) return block
+    if (isMedia(block)) {
+      if (isBinary(block)) return block
+      const rules = scrub(JSON.stringify(block)).rules
+      found.push(...rules)
+      return rules.length > 0 ? { type: 'text', text: REMOVED } : block
+    }
+    if (block.type === 'text') return scrubDeep(block, found)
+    if (block.type !== 'tool_result' || block.content === undefined) return block
+    return { ...block, content: Array.isArray(block.content) ? scrubBlocks(block.content, found) : scrubDeep(block.content, found) }
+  })
+
+const WITHHELD = 'secret-guard could not scan this for secrets, so it was withheld.'
+
+export const withheldNotice = (door: string) => {
+  if (door === 'prompt') return `${WITHHELD} Send it again in smaller pieces.`
+  if (door === 'tool-result') return `${WITHHELD} ${RAN_HINT}`
+  if (door === 'compaction') return `${WITHHELD} This was the summary of the conversation so far, so earlier context is gone. Tell the user.`
+  return WITHHELD
+}
+
+// One notice in place of the row's text, one per tool result (each keeps its tool_use_id and says the tool ran), media
+// dropped. Every other kind stays where it was, so a response still opens on its thinking. Undefined when nothing
+// could be withheld. Content too broken to walk becomes the notice alone, since this runs when the scan already failed.
+export const withheldContent = (blocks: ContentBlock[], door: string): ContentBlock[] | undefined => {
+  const notice = withheldNotice(door)
+  try {
+    let changed = false
+    let noticeShown = false
+    const kept = blocks.flatMap((block): ContentBlock[] => {
+      if (!isBlock(block) || isMedia(block)) {
+        changed = true
+        return []
+      }
+      if (block.type === 'tool_result') {
+        changed = true
+        return [{ ...block, content: `${WITHHELD} ${RAN_HINT}` }]
+      }
+      if (block.type !== 'text') return [block]
+      changed = true
+      if (noticeShown) return []
+      noticeShown = true
+      return [{ type: 'text', text: notice }]
+    })
+    if (!changed) return undefined
+    return noticeShown || kept.some(block => block.type === 'tool_result') ? kept : [...kept, { type: 'text', text: notice }]
+  } catch {
+    return [{ type: 'text', text: notice }]
+  }
 }

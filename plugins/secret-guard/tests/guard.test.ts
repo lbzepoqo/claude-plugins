@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { register, scrub, scrubDeep, secretCommand, sensitivePath, statusText, writesPlaceholder } from '../hooks/register'
+import { register, scrub, scrubBlocks, scrubDeep, secretCommand, sensitivePath, statusText, withheldContent, withheldNotice, writesPlaceholder } from '../hooks/register'
 
 // Synthetic values, built so this file holds no literal that a scanner flags.
 const AWS = 'AKIA' + 'ABCDEFGHIJKLMNOP'
@@ -314,8 +314,79 @@ function hooks() {
   }
   register(on as never, {} as never)
   const engine = { ui: { status: () => { throw new Error('no status line') } }, fs: { stat: async () => undefined }, env: { get: async () => undefined } }
-  return { toolCall: found['tool.call'], engine }
+  return { toolCall: found['tool.call'], sessionAppend: found['session.append'], engine }
 }
+
+test('a message that cannot be scanned keeps its place with one notice, its media dropped', async () => {
+  const { sessionAppend, engine } = hooks()
+  const image = { type: 'image', source: { type: 'base64', data: AWS } }
+  const row = { door: 'prompt', message: { type: 'user', content: [{ type: 'text', text: `key ${AWS}` }, image, { type: 'text', text: AWS }] } }
+  let stored: any
+  const next = Object.assign(async (appended: any) => (stored = appended), { called: false, error: { kind: 'timeout' } })
+  await sessionAppend.handler!(engine, row, next)
+  expect(stored.message.content).toEqual([{ type: 'text', text: withheldNotice('prompt') }])
+  expect(withheldNotice('prompt')).toContain('smaller pieces')
+})
+
+test('an unscanned tool result keeps its id and says the tool ran, and an unscanned note is refused', async () => {
+  const toolUse = { type: 'tool_use', id: 't1', name: 'Bash', input: {} }
+  const [toolResult, keptToolUse] = withheldContent([{ type: 'tool_result', tool_use_id: 't1', content: AWS }, toolUse], 'tool-result')
+  expect(toolResult).toEqual({ type: 'tool_result', tool_use_id: 't1', content: withheldNotice('tool-result') })
+  expect(withheldNotice('tool-result')).toContain('do not run it again')
+  expect(keptToolUse).toBe(toolUse)
+
+  const { sessionAppend, engine } = hooks()
+  const note = { door: 'note', message: { type: 'user', content: [{ type: 'text', text: AWS }] } }
+  const next = Object.assign(async () => { throw new Error('a refused note is not stored') }, { called: false, error: { kind: 'throw' } })
+  expect((await sessionAppend.handler!(engine, note, next)).deny).toContain('not stored')
+})
+
+test('a row the scan already stored is relayed as it was kept', async () => {
+  const { sessionAppend, engine } = hooks()
+  const row = { door: 'prompt', message: { type: 'user', content: [{ type: 'text', text: 'hello' }] } }
+  const kept = { message: row.message, uuid: 'u1' }
+  const next = Object.assign(async () => kept, { called: true, error: { kind: 'throw' } })
+  expect(await sessionAppend.handler!(engine, row, next)).toBe(kept)
+})
+
+test('an image-only row gets a notice rather than an empty message, and media is never scanned', () => {
+  const image = { type: 'image', source: { type: 'base64', data: AWS } }
+  expect(withheldContent([image], 'prompt')).toEqual([{ type: 'text', text: withheldNotice('prompt') }])
+  const found: string[] = []
+  const nested = { type: 'tool_result', tool_use_id: 't1', content: [image, { type: 'text', text: AWS }] }
+  expect(scrubBlocks([image, nested], found)).toEqual([image, { ...nested, content: [image, { type: 'text', text: tag('aws-key') }] }])
+  expect(found).toEqual(['aws-key'])
+})
+
+test('only what a hook may change is scanned or withheld, and a response still opens on its thinking', () => {
+  const thinking = { type: 'thinking', thinking: AWS, signature: 's' }
+  const toolUse = { type: 'tool_use', id: 't1', name: 'Write', input: { content: AWS } }
+  const found: string[] = []
+  expect(scrubBlocks([thinking, toolUse], found)).toEqual([thinking, toolUse])
+  expect(found).toEqual([])
+  expect(withheldContent([thinking, toolUse], 'response')).toBeUndefined()
+  expect(withheldContent([thinking, { type: 'text', text: 'x' }], 'response')).toEqual([thinking, { type: 'text', text: withheldNotice('response') }])
+})
+
+test('an attachment holding a key in its text or URL is replaced by a marker, since media cannot be changed', () => {
+  const secretDocument = { type: 'document', source: { type: 'text', media_type: 'text/plain', data: `KEY=${AWS}` } }
+  const urlImage = { type: 'image', source: { type: 'url', url: `https://host/x.png?k=${GH}` } }
+  const plainDocument = { type: 'document', source: { type: 'text', media_type: 'text/plain', data: 'hello' } }
+  const found: string[] = []
+  const [text, removedDocument, removedImage, keptDocument] = scrubBlocks([{ type: 'text', text: 'see file' }, secretDocument, urlImage, plainDocument], found)
+  expect(text).toEqual({ type: 'text', text: 'see file' })
+  expect(removedDocument.text).toContain('was removed')
+  expect(removedImage.text).toContain('was removed')
+  expect(keptDocument).toBe(plainDocument)
+  expect(found).toEqual(['aws-key', 'github-token'])
+})
+
+test('a withheld row that cannot even be walked becomes the notice alone, and an empty error result keeps its shape', () => {
+  expect(withheldContent([null as never], 'prompt')).toEqual([{ type: 'text', text: withheldNotice('prompt') }])
+  const emptyError = { type: 'tool_result', tool_use_id: 't1', is_error: true }
+  expect(scrubBlocks([emptyError], [])).toEqual([emptyError])
+  expect(Object.keys(scrubBlocks([emptyError], [])[0])).not.toContain('content')
+})
 
 test('a check that fails denies the call instead of letting it run unchecked', async () => {
   const { toolCall, engine } = hooks()

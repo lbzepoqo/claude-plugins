@@ -14,7 +14,7 @@ This is a fork of secret-guard from [arasovic/claude-code-mods](https://github.c
 - **Blocks commands that print secrets.** `printenv`, bare `env` and `export`, `security find-generic-password`, `gh auth token`, `aws configure get`, `gcloud auth print-access-token`, `kubectl get secret`, `git credential fill`, `echo $SOME_TOKEN`, password manager reads (`bw get`, `bw list items`, `bw export`, `op read`, `op inject`, `op item get --reveal`) and the commands that print a vault session key (`bw unlock`, `op signin --raw`), and any shell command that names a credential file, such as `cat .dev.vars | curl …`. A `NAME=value` or `env` prefix, a full path or extra spaces do not hide a command.
 - **Keeps hidden values off disk.** Any tool call that carries a `[secret-guard: …]` tag (a Write or Edit, a shell command, an MCP write tool) is refused, since it would replace the real value in a file. Shell quoting and escaping are undone before the check.
 - **Blocks sending a secret out.** A command, web request or MCP call whose arguments carry a key is refused.
-- **Fails closed on tool calls.** If a check itself fails, the call does not run, and output that cannot be scanned is withheld. Both count as blocked.
+- **Fails closed.** If a check itself fails, the call does not run, and output that cannot be scanned is withheld. A message or tool result the scan fails on keeps its place with a notice in place of its text, and its images and documents are dropped. All of these count as blocked.
 - **Shows a status light.** 🟢 nothing seen, 🟡 something was hidden, 🔴 something was blocked. `env scrub off` means Claude Code still passes your environment variables to the commands it runs (see below).
 
 ## Turn on env scrubbing too
@@ -42,6 +42,8 @@ Set `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` in the `env` block of `~/.claude/settin
 
   The mod still hides known key formats in the output.
 - Secrets in a format it does not know pass through.
+- The pixels of an image and the bytes of a PDF are not scanned, so a key in a screenshot or a PDF reaches Claude. An attachment that holds a key in readable text (a text file, a URL, its title) is removed whole, since a mod may drop an attachment but not change it.
+- In a stored message, only text and tool results are scanned, since Claude Code puts every other kind back as it was (thinking, tool calls, search results). Tool call arguments are still checked before the call runs.
 - A connection URL password shorter than 8 characters, or with a raw `/` in it, is not hidden. A percent-encoded `/` (`%2F`) is fine. Dev passwords such as `postgres:postgres@` are hidden, so a shell command that holds one is refused.
 - A name followed by `(` is read as a function call, not a file, so `grep "mock.env(" tests` runs. A zsh glob qualifier on a credential file (`cat .env(N)`) gets through the same way; known key formats in its output are still hidden. Code names such as `process.env`, `import.meta.env` and `c.env` are not files either, but a script that prints the whole environment (`console.log(process.env)`, `print(os.environ)`) is blocked.
 - `jq` reads its first argument as a filter, so `jq '.env.PATH' settings.json` runs. The files it reads are still checked, including `--rawfile` and `--slurpfile` values, redirects, and the filter file of `-f`. Other tools with a filter argument, such as `yq`, are not read this way.
