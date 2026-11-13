@@ -52,7 +52,7 @@ The style is about 1,500 words, sent with every request. Prompt caching covers i
 
 The [evals](evals) folder has 13 cases: simple questions, the closing block, figures that must survive, derived figures, an unchecked cause, a correction, defaults over questions, finding a bug with tools, a status that went stale, a question already answered, and others.
 
-On Opus 5.5 most cases score near the top with or without the style, since the model already does much of this. The clearest differences were shorter answers to simple questions and file paths written plain instead of in code font.
+On Opus 5.5 most cases score near the top with or without the style, since the model already does much of this. The clearest differences were shorter answers to simple questions and file paths written plain instead of in code font. Against 0.2.0, 0.3.0 says when it checked a status in 5 of 6 stale-status runs (0.2.0: 0 of 6), and points back to an earlier reply in 1 of 6 already-answered runs (0.2.0: 4 of 6). Neither version yet keeps a re-asked answer to two sentences.
 
 ```sh
 claude plugin eval .
