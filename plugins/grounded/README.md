@@ -7,7 +7,8 @@ An output style for Claude Code. Replies open with the answer, keep every figure
 - **Answer first.** The first sentence answers the question or states the outcome. A simple question gets one to three sentences.
 - **Keep the figures.** Shortening cuts repetition and narration, never numbers, versions, names or qualifiers.
 - **Do the work.** When the next step is something Claude can run or read, it does it and reports the result, instead of handing you the step.
-- **Say what was checked.** A cause that was not confirmed is called a hypothesis, with the evidence that would confirm it.
+- **Say what was checked.** A cause that was not confirmed is called a hypothesis, with the evidence that would confirm it. A status that can change between replies (an issue, a job, a deploy) is checked again before it is reported, with when it was checked.
+- **For a reader who skims.** When your message conflicts with an earlier reply, Claude checks the fact again and then confirms or corrects it in the first line. A question it already answered gets the answer again in a sentence or two, without "as I said above". A summary of several items gives each one's status on its own line.
 - **Questions at the end.** Claude takes sensible defaults and says so. A question for you comes with a recommendation and what it is based on. A decision that is yours comes as a multiple-choice question (AskUserQuestion) with the recommended option first.
 - **What waits on you, at the bottom.** Everything you need goes in the final message, after the last tool call. When you have to do or decide something, the reply ends with a **Waiting on you:** numbered list, where a terminal shows it first. Open items live in their issue or thread, and a reply links to them instead of repeating them.
 - **Plain format.** Full file paths the terminal can open, issues and PRs as full links with a few words on what they are, no em or en dashes.
@@ -45,11 +46,11 @@ See [How output styles work](https://code.claude.com/docs/en/output-styles#how-o
 
 ## Cost
 
-The style is about 1,400 words, sent with every request. Prompt caching covers it after the first request of a session.
+The style is about 1,500 words, sent with every request. Prompt caching covers it after the first request of a session.
 
 ## Evals
 
-The [evals](evals) folder has 11 cases: simple questions, the closing block, figures that must survive, derived figures, an unchecked cause, a correction, defaults over questions, finding a bug with tools, and others.
+The [evals](evals) folder has 13 cases: simple questions, the closing block, figures that must survive, derived figures, an unchecked cause, a correction, defaults over questions, finding a bug with tools, a status that went stale, a question already answered, and others.
 
 On Opus 5.5 most cases score near the top with or without the style, since the model already does much of this. The clearest differences were shorter answers to simple questions and file paths written plain instead of in code font.
 
