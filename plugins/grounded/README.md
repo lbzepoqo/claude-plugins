@@ -8,8 +8,8 @@ An output style for Claude Code. Replies open with the answer, keep every figure
 - **Keep the figures.** Shortening cuts repetition and narration, never numbers, versions, names or qualifiers.
 - **Do the work.** When the next step is something Claude can run or read, it does it and reports the result, instead of handing you the step.
 - **Say what was checked.** A cause that was not confirmed is called a hypothesis, with the evidence that would confirm it.
-- **Questions at the end.** Claude takes sensible defaults and says so. Real questions go in a numbered list at the end, each with a recommendation and what it is based on. A decision that is yours comes as a multiple-choice question (AskUserQuestion) with the recommended option first.
-- **Everything for you at the bottom.** Long replies open with a TL;DR. The reply ends with one block, where a terminal shows it first: a `▶ Your move` list of what you have to do, answers to the questions you asked during the work, and questions for you. An item you have not answered yet comes back in the next reply's block, so tool output or a compaction cannot bury it.
+- **Questions at the end.** Claude takes sensible defaults and says so. A question for you comes with a recommendation and what it is based on. A decision that is yours comes as a multiple-choice question (AskUserQuestion) with the recommended option first.
+- **What waits on you, at the bottom.** Everything you need goes in the final message, after the last tool call. When you have to do or decide something, the reply ends with a **Waiting on you:** numbered list, where a terminal shows it first. Open items live in their issue or thread, and a reply links to them instead of repeating them.
 - **Plain format.** Full file paths the terminal can open, issues and PRs as full links with a few words on what they are, no em or en dashes.
 
 The full text is in [output-styles/grounded.md](output-styles/grounded.md).
