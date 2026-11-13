@@ -51,6 +51,7 @@ Build a self-contained HTML file per structure, using the project's own CSS toke
 - Every width band: a 1920 desktop, a 1366 and a 1536 laptop (with the sidebar), and a 360 phone. Check each breakpoint's band at its narrow end, where columns hit their minimums. Both themes when the product has two.
 - Screenshot every width and look at them at 1:1 before showing them. Run ui-ux-pass's checker on the file (serve it locally) for overflow and unnamed controls.
 - Every control with its states: hover, focus, disabled, loading, error.
+- Build each container and control the way the build will: look up its pattern first with ui-ux-pass's guide search (`node <ui-ux-pass folder>/scripts/guides.mjs search popover`, the folder beside this skill's), as ui-ux-pass step 3 describes. A mockup that fakes a dialog with a `div` hides what the real `<dialog>` or popover does at each width.
 - Send the HTML file itself to the user, with the names and trades, and say which window width shows the phone layout. Attach it, or publish it as a page they can open. The screenshots are your own check and at most a preview beside the file, never in place of it, because the user wants to resize and click it. Wait for their pick before the build. When the user already chose a structure, mock that one only and still check it at every width.
 
 ## 4. Hand over to the build

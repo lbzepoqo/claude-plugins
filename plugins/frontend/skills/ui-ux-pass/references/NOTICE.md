@@ -8,6 +8,8 @@ Parts of this skill come from the projects below. Each is under the MIT License,
 | [vercel-labs/web-interface-guidelines](https://github.com/vercel-labs/web-interface-guidelines) | 434b7f9 | Copyright (c) 2025 Vercel Labs | `ui-checklist.md`, through claude-code-templates |
 | [addyosmani/web-quality-skills](https://github.com/addyosmani/web-quality-skills) (`accessibility`) | afa8da9 | Copyright (c) 2026 Addy Osmani | `ui-checklist.md` (WCAG 2.2 additions), through claude-code-templates |
 
+`scripts/guides.mjs` searches [GoogleChrome/modern-web-guidance](https://github.com/GoogleChrome/modern-web-guidance) (Apache License 2.0, Copyright Google LLC) in a clone it makes on the user's machine. None of its files are copied into this plugin.
+
 The flow audit, the sweep and the mockup check in `SKILL.md` draw on the sources its last section lists.
 
 ## MIT License
