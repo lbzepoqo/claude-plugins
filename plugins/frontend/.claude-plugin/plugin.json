@@ -1,0 +1,7 @@
+{
+  "name": "frontend",
+  "version": "0.1.0",
+  "description": "Skills for UI work: design a screen before building it, then build, audit and check it in a real browser with a bundled checker",
+  "author": { "name": "lbzepoqo" },
+  "license": "MIT"
+}

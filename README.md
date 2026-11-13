@@ -17,6 +17,7 @@ A skill is a set of instructions Claude loads when your request matches its desc
 | Plugin | What it does |
 |---|---|
 | [working-method](plugins/working-method) | Four skills for how Claude works: hard multi-step tasks, CLAUDE.md upkeep, surviving a usage limit, git worktrees |
+| [frontend](plugins/frontend) | Two skills for UI work: design a screen with HTML mockups before building it, then build, audit the task flow and check it in a browser (bundled Playwright checker, which runs only when Claude runs it) |
 
 ## Session plugins
 

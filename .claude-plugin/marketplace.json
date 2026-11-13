@@ -37,6 +37,11 @@
       "description": "Skills for how Claude works on a task: hard multi-step tasks, context docs, surviving a usage limit, and git worktrees"
     },
     {
+      "name": "frontend",
+      "source": "./plugins/frontend",
+      "description": "Skills for UI work: design a screen before building it, then build, audit and check it in a real browser with a bundled checker"
+    },
+    {
       "name": "quality-nudge",
       "source": "./plugins/quality-nudge",
       "description": "Reminds Claude to run code-review after a code commit that no review saw: from 30 changed lines, or any change to guard code; adds /simplify from 300 lines"
