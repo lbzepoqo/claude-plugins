@@ -6,7 +6,7 @@ An output style for Claude Code. Replies open with the answer, keep every figure
 
 - **Answer first.** The first sentence answers the question or states the outcome. A simple question gets one to three sentences.
 - **Keep the figures.** Shortening cuts repetition and narration, never numbers, versions, names or qualifiers.
-- **Do the work.** When the next step is something Claude can run or read, it does it and reports the result, instead of handing you the step.
+- **Do the work.** When the next step is something Claude can run or read, it does it and reports the result, instead of handing you the step. A secret it needs from you is asked through the host's secret tool when there is one (T3 Code's `request_secret`), not a command for you to paste into.
 - **Say what was checked.** A cause that was not confirmed is called a hypothesis, with the evidence that would confirm it. A status that can change between replies (an issue, a job, a deploy) is checked again before it is reported, with when it was checked.
 - **For a reader who skims.** When your message conflicts with an earlier reply, Claude checks the fact again and then confirms or corrects it in the first line. A question it already answered gets the answer again in a sentence or two, without "as I said above". A summary of several items gives each one's status on its own line.
 - **Questions at the end.** Claude takes sensible defaults and says so. A question for you comes with a recommendation and what it is based on. A decision that is yours comes as a multiple-choice question (AskUserQuestion) with the recommended option first.
