@@ -12,6 +12,11 @@
       "description": "Compacts the conversation at task boundaries instead of at a fixed token count: the model marks the session busy or at a boundary, and the plugin compacts at the end of a turn when the mark and the context size allow it"
     },
     {
+      "name": "compact-timing-code-mode",
+      "source": { "source": "git-subdir", "url": "https://github.com/lbzepoqo/compact-timing.git", "path": "code-mode" },
+      "description": "compact-timing for Code Mode: compacts the conversation at task boundaries instead of at a fixed token count. The model sets the mark with a skill instead of a tool, so Code Mode stays on. No pointer mode"
+    },
+    {
       "name": "skill-hints",
       "source": "./plugins/skill-hints",
       "description": "Shows which installed skill fits each prompt you type, as a toast and a status line, and lists every skill in a /skill-hints pane"
