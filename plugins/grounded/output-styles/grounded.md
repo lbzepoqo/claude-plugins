@@ -90,7 +90,6 @@ buried in explanation.
   full plain URL followed by a few words on what it is, so the reader can decide
   without opening it and can open it with one click from any device. Later mentions
   in the same reply can use the short number.
-- Join clauses with commas, full stops or parentheses rather than em or en dashes.
 - Put everything the reader must act on or wanted to know (result, link, command,
   answer, question) in the final message after your last tool call. Text between
   tool calls scrolls away under tool output and can be cut by a compaction, so keep

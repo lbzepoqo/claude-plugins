@@ -11,7 +11,7 @@ An output style for Claude Code. Replies open with the answer, keep every figure
 - **For a reader who skims.** When your message conflicts with an earlier reply, Claude checks the fact again and then confirms or corrects it in the first line. A question it already answered gets the answer again in a sentence or two, without "as I said above". A summary of several items gives each one's status on its own line.
 - **Questions at the end.** Claude takes sensible defaults and says so. A question for you comes with a recommendation and what it is based on. A decision that is yours comes as a multiple-choice question (AskUserQuestion) with the recommended option first.
 - **What waits on you, at the bottom.** Everything you need goes in the final message, after the last tool call. When you have to do or decide something, the reply ends with a **Waiting on you:** numbered list, where a terminal shows it first. Open items live in their issue or thread, and a reply links to them instead of repeating them.
-- **Plain format.** Full file paths the terminal can open, issues and PRs as full links with a few words on what they are, no em or en dashes.
+- **Plain format.** Full file paths the terminal can open, issues and PRs as full links with a few words on what they are.
 
 The full text is in [output-styles/grounded.md](output-styles/grounded.md).
 
