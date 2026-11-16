@@ -309,12 +309,18 @@ test('the status line shows the worst thing that happened', () => {
 function hooks() {
   const found: Record<string, { hook: Function; handler?: Function }> = {}
   const on = (event: string, hook: Function) => {
-    found[event] = { hook }
-    return { catch: (handler: Function) => { found[event].handler = handler } }
+    const registered: { hook: Function; handler?: Function } = { hook }
+    found[event] = registered
+    return { catch: (handler: Function) => { registered.handler = handler } }
   }
   register(on as never, {} as never)
+  const registeredHook = (event: string) => {
+    const registered = found[event]
+    if (!registered) throw new Error(`secret-guard registered no ${event} hook`)
+    return registered
+  }
   const engine = { ui: { status: () => { throw new Error('no status line') } }, fs: { stat: async () => undefined }, env: { get: async () => undefined } }
-  return { toolCall: found['tool.call'], sessionAppend: found['session.append'], engine }
+  return { toolCall: registeredHook('tool.call'), sessionAppend: registeredHook('session.append'), engine }
 }
 
 test('a message that cannot be scanned keeps its place with one notice, its media dropped', async () => {
@@ -330,7 +336,7 @@ test('a message that cannot be scanned keeps its place with one notice, its medi
 
 test('an unscanned tool result keeps its id and says the tool ran, and an unscanned note is refused', async () => {
   const toolUse = { type: 'tool_use', id: 't1', name: 'Bash', input: {} }
-  const [toolResult, keptToolUse] = withheldContent([{ type: 'tool_result', tool_use_id: 't1', content: AWS }, toolUse], 'tool-result')
+  const [toolResult, keptToolUse] = withheldContent([{ type: 'tool_result', tool_use_id: 't1', content: AWS }, toolUse], 'tool-result')!
   expect(toolResult).toEqual({ type: 'tool_result', tool_use_id: 't1', content: withheldNotice('tool-result') })
   expect(withheldNotice('tool-result')).toContain('do not run it again')
   expect(keptToolUse).toBe(toolUse)
@@ -375,8 +381,8 @@ test('an attachment holding a key in its text or URL is replaced by a marker, si
   const found: string[] = []
   const [text, removedDocument, removedImage, keptDocument] = scrubBlocks([{ type: 'text', text: 'see file' }, secretDocument, urlImage, plainDocument], found)
   expect(text).toEqual({ type: 'text', text: 'see file' })
-  expect(removedDocument.text).toContain('was removed')
-  expect(removedImage.text).toContain('was removed')
+  expect(removedDocument!.text).toContain('was removed')
+  expect(removedImage!.text).toContain('was removed')
   expect(keptDocument).toBe(plainDocument)
   expect(found).toEqual(['aws-key', 'github-token'])
 })
@@ -385,7 +391,7 @@ test('a withheld row that cannot even be walked becomes the notice alone, and an
   expect(withheldContent([null as never], 'prompt')).toEqual([{ type: 'text', text: withheldNotice('prompt') }])
   const emptyError = { type: 'tool_result', tool_use_id: 't1', is_error: true }
   expect(scrubBlocks([emptyError], [])).toEqual([emptyError])
-  expect(Object.keys(scrubBlocks([emptyError], [])[0])).not.toContain('content')
+  expect(Object.keys(scrubBlocks([emptyError], [])[0]!)).not.toContain('content')
 })
 
 test('a check that fails denies the call instead of letting it run unchecked', async () => {

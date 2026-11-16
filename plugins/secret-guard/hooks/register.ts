@@ -1,4 +1,4 @@
-import type { EngineInterface, Register } from 'claude-code'
+import type { EngineInterface, Register, ToolCallResult } from 'claude-code'
 import { commandPipelines, pathWords, quotedWords, scriptLiterals, shellWords, withoutDataHeredocs, withoutJqFilter, writesFile } from './shell-read'
 
 // Derived from gitleaks' default rules, loosened where key formats change.
@@ -296,10 +296,8 @@ const deny = ($: EngineInterface, reason: string, hint = READ_HINT) => {
 const FAILED_HINT = 'Do not try another way to run it. Ask the user to run the step and share only what is safe.'
 const RAN_HINT = 'The tool did run, so do not run it again. Ask the user to check its output and share only what is safe.'
 
-type ToolOutcome = { deny?: string; isError?: boolean; result?: unknown; context?: string[] }
-
 // Error results are left to session.append, which scrubs every stored row.
-function scrubOutcome<O extends ToolOutcome>($: EngineInterface, ran: O): O | { result: unknown; context: O['context'] } {
+function scrubOutcome<O extends ToolCallResult>($: EngineInterface, ran: O): O | { result: unknown; context: O['context'] } {
   if (ran.deny !== undefined || ran.isError) return ran
   const found: string[] = []
   const result = scrubDeep(ran.result, found)
