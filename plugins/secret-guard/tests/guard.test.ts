@@ -412,6 +412,19 @@ test('output that cannot be scanned is withheld, and output the replay can scan 
   expect((await toolCall.handler!(engine, { tool: 'Read', file_path: 'a.txt' }, timedOutNext)).deny).toContain('withheld')
 })
 
+test('a secret in context a later hook added is scrubbed, with or without one in the result', async () => {
+  const { toolCall, engine } = hooks()
+  const call = { tool: 'Read', file_path: 'a.txt' }
+  const cleanResult = await toolCall.hook(engine, call, async () => ({ ref: 'r1', result: 'hello', text: 'hello', isReadOnly: true, context: [`note ${AWS}`] }))
+  expect(cleanResult).toEqual({ ref: 'r1', result: 'hello', text: 'hello', isReadOnly: true, context: [`note ${tag('aws-key')}`] })
+  const failed = await toolCall.hook(engine, call, async () => ({ ref: 'r2', result: `err ${GH}`, isError: true, context: [`note ${AWS}`] }))
+  expect(failed).toEqual({ ref: 'r2', result: `err ${GH}`, isError: true, context: [`note ${tag('aws-key')}`] })
+  const bothDirty = await toolCall.hook(engine, call, async () => ({ result: `key ${GH}`, context: [`note ${AWS}`, 'plain'] }))
+  expect(bothDirty).toEqual({ result: `key ${tag('github-token')}`, context: [`note ${tag('aws-key')}`, 'plain'] })
+  const replayNext = Object.assign(async () => ({ result: 'hello', context: [`note ${AWS}`] }), { called: true, error: { kind: 'throw' } })
+  expect((await toolCall.handler!(engine, call, replayNext)).context).toEqual([`note ${tag('aws-key')}`])
+})
+
 test('a status line the host refuses does not fail the hook', async () => {
   const { toolCall, engine } = hooks()
   const keyFile = [HOME, '.ssh', 'id' + '_rsa'].join('/')

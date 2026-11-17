@@ -296,15 +296,20 @@ const deny = ($: EngineInterface, reason: string, hint = READ_HINT) => {
 const FAILED_HINT = 'Do not try another way to run it. Ask the user to run the step and share only what is safe.'
 const RAN_HINT = 'The tool did run, so do not run it again. Ask the user to check its output and share only what is safe.'
 
-// Error results are left to session.append, which scrubs every stored row.
+// An error result is left to session.append, which scrubs every stored row. The context a later hook adds is
+// scanned here on every result, since the engine docs do not say it is stored through session.append first.
 function scrubOutcome<O extends ToolCallResult>($: EngineInterface, ran: O): O | { result: unknown; context: O['context'] } {
-  if (ran.deny !== undefined || ran.isError) return ran
+  if (ran.deny !== undefined) return ran
   const found: string[] = []
-  const result = scrubDeep(ran.result, found)
+  const result = ran.isError ? ran.result : scrubDeep(ran.result, found)
+  const resultHidden = found.length
+  const context = scrubDeep(ran.context, found)
   if (found.length === 0) return ran
   tally.hidden += found.length
   show($)
-  return { result, context: ran.context }
+  // Only the context changed: keep core's own result, with its ref and flags.
+  if (resultHidden === 0) return { ...ran, context }
+  return { result, context }
 }
 
 export const register: Register = on => {
